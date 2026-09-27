@@ -4,12 +4,14 @@
 //! column) in the source code.
 //!
 
-use std::ops::Deref;
+use std::{fmt::Debug, ops::Deref};
 
-/// Represents a string where each character is annotated with its position (line and column) in the source code
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Represents a string where each character is annotated with its position
+/// (line and column) in the source code
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct AnnotatedString {
-    pub(crate) characters: Vec<AnnotatedCharacter>,
+    /// The annotated characters that make up the string
+    pub(crate) characters: Vec<Annotated<char>>,
 }
 
 impl AnnotatedString {
@@ -30,8 +32,8 @@ impl AnnotatedString {
                     *column += 1;
                 }
 
-                return Some(AnnotatedCharacter {
-                    character,
+                return Some(Annotated {
+                    value: character,
                     line: *line,
                     column: *column,
                 });
@@ -47,7 +49,7 @@ impl AnnotatedString {
             .characters
             .iter()
             .cloned()
-            .filter(|c| !c.character.is_whitespace())
+            .filter(|c| !c.value.is_whitespace())
             .collect();
 
         return AnnotatedString { characters };
@@ -63,7 +65,7 @@ impl Deref for AnnotatedString {
 }
 
 /// Represents a slice of annotated characters
-pub(crate) type AnnotatedStr = [AnnotatedCharacter];
+pub(crate) type AnnotatedStr = [Annotated<char>];
 
 /// Converts a slice of `AnnotatedCharacter` into a regular `String` by
 /// extracting the characters
@@ -73,14 +75,18 @@ pub(crate) type AnnotatedStr = [AnnotatedCharacter];
 /// annotated_str: A slice of `AnnotatedCharacter` to be converted into a
 /// regular `String`
 pub(crate) fn to_string(annotated_str: &AnnotatedStr) -> String {
-    return annotated_str.iter().map(|c| c.character).collect();
+    return annotated_str.iter().map(|c| c.value).collect();
 }
 
-/// Represents a character with its position (line and column) in the source code
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct AnnotatedCharacter {
-    /// The character being annotated
-    pub(crate) character: char,
+/// Represents a value annotated with its position (line and column) in the
+/// source code
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Annotated<T>
+where
+    T: Debug + Clone + PartialEq,
+{
+    /// The value being annotated
+    pub(crate) value: T,
     /// The line number where the character appears
     pub(crate) line: usize,
     /// The column number where the character appears
