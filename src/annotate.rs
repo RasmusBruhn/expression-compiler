@@ -19,9 +19,9 @@ impl AnnotatedString {
     ///
     /// # Parameters
     ///
-    /// str: The input string to be annotated with line and column information
-    pub(crate) fn new(str: &str) -> Self {
-        let characters = str
+    /// s: The input string to be annotated with line and column information
+    pub(crate) fn new(s: &str) -> Self {
+        let characters = s
             .chars()
             .scan((1, 0), |(line, column), character| {
                 // Update location of character
@@ -40,6 +40,16 @@ impl AnnotatedString {
             })
             .collect();
 
+        return AnnotatedString { characters };
+    }
+
+    /// Constructs a new `AnnotatedString` from a slice of annotated characters
+    ///
+    /// # Parameters
+    ///
+    /// s: A slice of annotated characters to be converted into an `AnnotatedString`
+    pub(crate) fn from_str(s: &AnnotatedStr) -> Self {
+        let characters = s.to_vec();
         return AnnotatedString { characters };
     }
 
@@ -81,7 +91,7 @@ pub(crate) fn to_string(annotated_str: &AnnotatedStr) -> String {
 /// Represents a value annotated with its position (line and column) in the
 /// source code
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Annotated<T>
+pub struct Annotated<T>
 where
     T: Debug + Clone + PartialEq,
 {
