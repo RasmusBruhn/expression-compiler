@@ -36,16 +36,19 @@ pub enum ErrorCore {
     /// No error
     #[error("No error")]
     None,
+    /// A string literal contains an invalid escape sequence
+    #[error("String or character literal contains an invalid escape sequence: '{}'", .0)]
+    TextLiteralInvalidEscapeSequence(String),
+    /// A string literal contains an invalid digit in escape sequence
+    #[error("String or character literal contains an invalid digit in escape sequence: '{}'", .0)]
+    TextLiteralInvalidEscapeValueDigit(String),
+    /// A string literal contains an escape sequence with a value larger than 255
+    #[error("String or character literal contains an escape sequence with a value larger than 255")]
+    TextLiteralLargeEscapeValue(),
     /// A string literal was not properly closed with a double quote
-    #[error("String literal not properly closed with a double quote")]
-    StringLiteralMissingEnd,
-    /// A string literal contains an invalid special character
-    #[error("String literal contains an invalid character: '{}'", .0)]
-    StringLiteralInvalidCharacter(String),
-    /// A character literal was not properly closed with a single quote
-    #[error("Character literal not properly closed with a single quote")]
-    CharacterLiteralMissingEnd,
-    /// A character literal contains too many characters
-    #[error("Character literal contains too many characters")]
-    CharacterLiteralTooLong,
+    #[error("Text literal not properly closed, expected '{}'", .0)]
+    TextLiteralMissingEnd(char),
+    /// A character literal does not contain exactly one character
+    #[error("Character literal does not contain exactly one character")]
+    CharacterLiteralLength,
 }
