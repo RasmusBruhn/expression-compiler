@@ -271,7 +271,170 @@ fn find_string_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
 ///
 /// # Parameters
 ///
-/// str: The annotated string to search for value literals
-fn find_value_literals<'a>(str: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
+/// s: The annotated string to search for value literals
+fn find_value_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
+    let mut result = Vec::new();
+    let mut start = 0;
+    let mut allow_literal = true;
+    let mut iterator = s.iter().enumerate();
+    while let Some((i, c)) = iterator.next() {
+        // Attempt to parse a literal
+        if allow_literal {
+            let mut skip_count = 0;
+            if let Some(parsed) = parse_float_literal(&s[i..]) {
+                result.push(Token::FloatLiteral(Annotated {
+                    value: parsed.value,
+                    line: c.line,
+                    column: c.column,
+                }));
+                skip_count = parsed.count;
+            } else if let Some(parsed) = parse_int_literal(&s[i..]) {
+                result.push(Token::IntegerLiteral(Annotated {
+                    value: parsed.value,
+                    line: c.line,
+                    column: c.column,
+                }));
+                skip_count = parsed.count;
+            } else if let Some(parsed) = parse_bool_literal(&s[i..]) {
+                result.push(Token::BooleanLiteral(Annotated {
+                    value: parsed.value,
+                    line: c.line,
+                    column: c.column,
+                }));
+                skip_count = parsed.count;
+            }
+
+            // If any literal was found, skip over the characters used by the
+            // literal and add unidentified token for previous characters
+            if skip_count > 0 {
+                if start < i {
+                    result.push(Token::Unidentified(&s[start..i]));
+                }
+                start = i + skip_count;
+                iterator.nth(skip_count - 1);
+            }
+
+            allow_literal = false;
+        } else {
+            // Check if next character could be the start of a literal (the
+            // previous character must not be able to be part of a variable
+            // name)
+            allow_literal = !(c.value.is_alphanumeric() || c.value == '_');
+        }
+    }
+
+    // Get the last unidentified element
+    if start < s.len() {
+        result.push(Token::Unidentified(&s[start..]));
+    }
+
+    return Ok(result);
+}
+
+/// Return value for literal parsing
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ParsedLiteral<T>
+where
+    T: Copy + PartialEq,
+{
+    /// The parsed literal value
+    value: T,
+    /// The number of characters used for the literal
+    count: usize,
+}
+
+/// Attempts to parse a float literal from the annotated string, it must start
+/// at the start of the string slice but does not need to consume the entire
+/// slice
+///
+/// # Parameters
+///
+/// s: The annotated string slice to parse the float literal from
+fn parse_float_literal(s: &AnnotatedStr) -> Option<ParsedLiteral<f64>> {
     todo!()
+}
+
+/// Attempts to parse an integer literal from the annotated string, it must start
+/// at the start of the string slice but does not need to consume the entire
+/// slice
+///
+/// # Parameters
+///
+/// s: The annotated string slice to parse the integer literal from
+fn parse_int_literal(s: &AnnotatedStr) -> Option<ParsedLiteral<u64>> {
+    let mut radix = 0;
+    let mut skip_count = 0;
+
+    if s.len() >= 3 && s[0].value == '0' {
+        if s[1].value == 'x' || s[1].value == 'X' {
+            radix = 16;
+            skip_count = 2;
+        } else if s[1].value == 'o' || s[1].value == 'O' {
+            radix = 8;
+            skip_count = 2;
+        } else if s[1].value == 'b' || s[1].value == 'B' {
+            radix = 2;
+            skip_count = 2;
+        }
+    } else if s.len() >= 1 {
+        radix = 10;
+        skip_count = 0;
+    } else {
+        return None;
+    }
+
+    // Make sure there is at least one digit after the prefix
+    if !s[skip_count].value.is_digit(radix) {
+        return None;
+    }
+
+    // Parse the literal
+    let mut value: u64 = 0;
+    let mut count = s.len();
+    for (i, c) in s.iter().enumerate().skip(skip_count) {
+        // Stop the literal
+        if !c.value.is_digit(radix) {
+            count = i;
+            break;
+        }
+
+        // Accumulate the digit value
+        value = value * (radix as u64) + c.value.to_digit(radix).unwrap() as u64;
+    }
+
+    return Some(ParsedLiteral { value, count });
+}
+
+/// Attempts to parse a boolean literal from the annotated string, it must start
+/// at the start of the string slice but does not need to consume the entire
+/// slice
+///
+/// # Parameters
+///
+/// s: The annotated string slice to parse the integer literal from
+fn parse_bool_literal(s: &AnnotatedStr) -> Option<ParsedLiteral<bool>> {
+    return if s.len() >= 4
+        && s[0].value == 't'
+        && s[1].value == 'r'
+        && s[2].value == 'u'
+        && s[3].value == 'e'
+    {
+        Some(ParsedLiteral {
+            value: true,
+            count: 4,
+        })
+    } else if s.len() >= 5
+        && s[0].value == 'f'
+        && s[1].value == 'a'
+        && s[2].value == 'l'
+        && s[3].value == 's'
+        && s[4].value == 'e'
+    {
+        Some(ParsedLiteral {
+            value: false,
+            count: 5,
+        })
+    } else {
+        None
+    };
 }
