@@ -25,10 +25,10 @@ pub(crate) enum Token<'a> {
 ///
 /// # Parameters
 ///
-/// str: The annotated string to search for literals
-pub(crate) fn find_literals<'a>(str: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
+/// s: The annotated string to search for literals
+pub(crate) fn find_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
     // Find all string literals
-    let tokens = find_string_literals(str)?;
+    let tokens = find_string_literals(s)?;
 
     // Find all value literals
     let mut result = Vec::new();
@@ -158,7 +158,7 @@ fn find_string_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
                     // Make sure value is not too large
                     if active_value.value > 255 {
                         return Err(Error {
-                            error: ErrorCore::TextLiteralLargeEscapeValue(),
+                            error: ErrorCore::TextLiteralLargeEscapeValue,
                             line: c.line,
                             column: c.column,
                         });
@@ -168,9 +168,11 @@ fn find_string_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
                     active_string
                         .current_string
                         .push(active_value.value as u8 as char);
-                }
 
-                active_string.active_value_opt = Some(active_value);
+                    active_string.active_value_opt = None;
+                } else {
+                    active_string.active_value_opt = Some(active_value);
+                }
             } else if c.value == active_string.escape_character {
                 // End of active string literal
                 if active_string.escape_character == '"' {
@@ -234,8 +236,9 @@ fn find_string_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
                 }
 
                 // End the previous token
-                if start < i {
-                    result.push(Token::Unidentified(&s[start..i]));
+                let end = if raw_string { i - 1 } else { i };
+                if start < end {
+                    result.push(Token::Unidentified(&s[start..end]));
                 }
             } else if c.value == 'r' {
                 // Mark the upcoming string as a raw string literal
@@ -281,45 +284,46 @@ fn find_value_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
         // Attempt to parse a literal
         if allow_literal {
             let mut skip_count = 0;
-            if let Some(parsed) = parse_float_literal(&s[i..])? {
-                result.push(Token::FloatLiteral(Annotated {
+            let literal = if let Some(parsed) = parse_float_literal(&s[i..])? {
+                skip_count = parsed.count;
+                Token::FloatLiteral(Annotated {
                     value: parsed.value,
                     line: c.line,
                     column: c.column,
-                }));
-                skip_count = parsed.count;
+                })
             } else if let Some(parsed) = parse_int_literal(&s[i..], false)? {
-                result.push(Token::IntegerLiteral(Annotated {
+                skip_count = parsed.count;
+                Token::IntegerLiteral(Annotated {
                     value: parsed.value,
                     line: c.line,
                     column: c.column,
-                }));
-                skip_count = parsed.count;
+                })
             } else if let Some(parsed) = parse_bool_literal(&s[i..])? {
-                result.push(Token::BooleanLiteral(Annotated {
+                skip_count = parsed.count;
+                Token::BooleanLiteral(Annotated {
                     value: parsed.value,
                     line: c.line,
                     column: c.column,
-                }));
-                skip_count = parsed.count;
-            }
+                })
+            } else {
+                allow_literal = !is_invalid_literal_terminator(c.value);
+                continue;
+            };
 
-            // If any literal was found, skip over the characters used by the
-            // literal and add unidentified token for previous characters
-            if skip_count > 0 {
-                if start < i {
-                    result.push(Token::Unidentified(&s[start..i]));
-                }
-                start = i + skip_count;
-                iterator.nth(skip_count - 1);
+            // Add unidentified token for characters before the literal and the literal itself and update the start position
+            if start < i {
+                result.push(Token::Unidentified(&s[start..i]));
             }
+            result.push(literal);
+            start = i + skip_count;
+            iterator.nth(skip_count - 1);
 
             allow_literal = false;
         } else {
             // Check if next character could be the start of a literal (the
             // previous character must not be able to be part of a variable
             // name)
-            allow_literal = !(c.value.is_alphanumeric() || c.value == '_');
+            allow_literal = !is_invalid_literal_terminator(c.value);
         }
     }
 
@@ -437,6 +441,11 @@ fn parse_float_literal(s: &AnnotatedStr) -> Result<Option<ParsedLiteral<f64>>> {
         return Ok(None);
     }
 
+    // Make sure the next character is not alphanumeric, which would make it an invalid integer literal
+    if count < s.len() && is_invalid_literal_terminator(s[count].value) {
+        return Ok(None);
+    }
+
     Ok(Some(ParsedLiteral { value, count }))
 }
 
@@ -500,6 +509,11 @@ fn parse_int_literal(s: &AnnotatedStr, only_decimal: bool) -> Result<Option<Pars
         value = value * (radix as u64) + c.value.to_digit(radix).unwrap() as u64;
     }
 
+    // Make sure the next character is not alphanumeric, which would make it an invalid integer literal
+    if count < s.len() && is_invalid_literal_terminator(s[count].value) {
+        return Ok(None);
+    }
+
     return Ok(Some(ParsedLiteral { value, count }));
 }
 
@@ -518,10 +532,14 @@ fn parse_bool_literal(s: &AnnotatedStr) -> Result<Option<ParsedLiteral<bool>>> {
             && s[2].value == 'u'
             && s[3].value == 'e'
         {
-            Some(ParsedLiteral {
-                value: true,
-                count: 4,
-            })
+            if s.len() > 4 && is_invalid_literal_terminator(s[4].value) {
+                None
+            } else {
+                Some(ParsedLiteral {
+                    value: true,
+                    count: 4,
+                })
+            }
         } else if s.len() >= 5
             && s[0].value == 'f'
             && s[1].value == 'a'
@@ -529,12 +547,810 @@ fn parse_bool_literal(s: &AnnotatedStr) -> Result<Option<ParsedLiteral<bool>>> {
             && s[3].value == 's'
             && s[4].value == 'e'
         {
-            Some(ParsedLiteral {
-                value: false,
-                count: 5,
-            })
+            if s.len() > 5 && is_invalid_literal_terminator(s[5].value) {
+                None
+            } else {
+                Some(ParsedLiteral {
+                    value: false,
+                    count: 5,
+                })
+            }
         } else {
             None
         },
     );
+}
+
+/// Checks whether a character is an invalid terminator for a value literal
+fn is_invalid_literal_terminator(c: char) -> bool {
+    return c.is_alphanumeric() || c == '_' || c == '.';
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::annotate::AnnotatedString;
+
+    mod boolean_literal {
+        use super::*;
+
+        #[test]
+        fn single_true() {
+            let s = AnnotatedString::new("true");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::BooleanLiteral(Annotated {
+                    value: true,
+                    line: 1,
+                    column: 1
+                }),]
+            );
+        }
+
+        #[test]
+        fn single_false() {
+            let s = AnnotatedString::new("false");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::BooleanLiteral(Annotated {
+                    value: false,
+                    line: 1,
+                    column: 1
+                }),]
+            );
+        }
+
+        #[test]
+        fn imbedded_true() {
+            let s = AnnotatedString::new("a true b");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..2]),
+                    Token::BooleanLiteral(Annotated {
+                        value: true,
+                        line: 1,
+                        column: 3
+                    }),
+                    Token::Unidentified(&s[6..])
+                ]
+            );
+        }
+
+        #[test]
+        fn imbedded_false() {
+            let s = AnnotatedString::new("a false b");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..2]),
+                    Token::BooleanLiteral(Annotated {
+                        value: false,
+                        line: 1,
+                        column: 3
+                    }),
+                    Token::Unidentified(&s[7..])
+                ]
+            );
+        }
+
+        #[test]
+        fn invalid_true_begin() {
+            let s = AnnotatedString::new("atrue");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(result, vec![Token::Unidentified(&s),]);
+        }
+
+        #[test]
+        fn invalid_false_begin() {
+            let s = AnnotatedString::new("afalse");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(result, vec![Token::Unidentified(&s),]);
+        }
+
+        #[test]
+        fn invalid_true_end() {
+            let s = AnnotatedString::new("truea");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(result, vec![Token::Unidentified(&s),]);
+        }
+
+        #[test]
+        fn invalid_false_end() {
+            let s = AnnotatedString::new("falsea");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(result, vec![Token::Unidentified(&s),]);
+        }
+    }
+
+    mod integer_literal {
+        use super::*;
+
+        #[test]
+        fn single() {
+            let s = AnnotatedString::new("1234567890");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::IntegerLiteral(Annotated {
+                    value: 1234567890,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+
+        #[test]
+        fn imbedded() {
+            let s = AnnotatedString::new("a 1234567890 b");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..2]),
+                    Token::IntegerLiteral(Annotated {
+                        value: 1234567890,
+                        line: 1,
+                        column: 3
+                    }),
+                    Token::Unidentified(&s[12..])
+                ]
+            );
+        }
+
+        #[test]
+        fn invalid_start() {
+            let s = AnnotatedString::new("a1234567890");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(result, vec![Token::Unidentified(&s),]);
+        }
+
+        #[test]
+        fn invalid_end() {
+            let s = AnnotatedString::new("1234567890a");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(result, vec![Token::Unidentified(&s),]);
+        }
+
+        #[test]
+        fn hexadecimal_lowercase() {
+            let s = AnnotatedString::new("0x123abcdef");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::IntegerLiteral(Annotated {
+                    value: 0x123abcdef,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+
+        #[test]
+        fn hexadecimal_uppercase() {
+            let s = AnnotatedString::new("0X123ABCDEF");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::IntegerLiteral(Annotated {
+                    value: 0x123abcdef,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+
+        #[test]
+        fn binary_lowercase() {
+            let s = AnnotatedString::new("0b101010");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::IntegerLiteral(Annotated {
+                    value: 0b101010,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+
+        #[test]
+        fn binary_uppercase() {
+            let s = AnnotatedString::new("0B101010");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::IntegerLiteral(Annotated {
+                    value: 0b101010,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+
+        #[test]
+        fn too_large() {
+            let s = AnnotatedString::new("123456789012345678901234567890");
+            let result = find_literals(&s).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::IntegerLiteralTooLarge,
+                    line: 1,
+                    column: 21
+                }
+            );
+        }
+    }
+
+    mod float_literal {
+        use super::*;
+
+        #[test]
+        fn single() {
+            let s = AnnotatedString::new("123.456");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::FloatLiteral(Annotated {
+                    value: 123.456,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+
+        #[test]
+        fn imbedded() {
+            let s = AnnotatedString::new("a 123.456 b");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..2]),
+                    Token::FloatLiteral(Annotated {
+                        value: 123.456,
+                        line: 1,
+                        column: 3
+                    }),
+                    Token::Unidentified(&s[9..])
+                ]
+            );
+        }
+
+        #[test]
+        fn invalid_start() {
+            let s = AnnotatedString::new("a123.456");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(result, vec![Token::Unidentified(&s),]);
+        }
+
+        #[test]
+        fn invalid_end() {
+            let s = AnnotatedString::new("123.456a");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(result, vec![Token::Unidentified(&s),]);
+        }
+
+        #[test]
+        fn start_dot() {
+            let s = AnnotatedString::new(".456");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::FloatLiteral(Annotated {
+                    value: 0.456,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+
+        #[test]
+        fn end_dot() {
+            let s = AnnotatedString::new("123.");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::FloatLiteral(Annotated {
+                    value: 123.0,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+
+        #[test]
+        fn scientific_lowercase() {
+            let s = AnnotatedString::new("123.456e2");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::FloatLiteral(Annotated {
+                    value: 12345.6,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+
+        #[test]
+        fn scientific_uppercase() {
+            let s = AnnotatedString::new("123.456E2");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::FloatLiteral(Annotated {
+                    value: 12345.6,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+
+        #[test]
+        fn scientific_neg() {
+            let s = AnnotatedString::new("123.456e-2");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::FloatLiteral(Annotated {
+                    value: 1.23456,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+
+        #[test]
+        fn scientific_pos() {
+            let s = AnnotatedString::new("123.456e+2");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::FloatLiteral(Annotated {
+                    value: 12345.6,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+
+        #[test]
+        fn scientific_small() {
+            let s = AnnotatedString::new("123.456e-1000");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::FloatLiteral(Annotated {
+                    value: 0.0,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+
+        #[test]
+        fn scientific_large() {
+            let s = AnnotatedString::new("123.456e+1000");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::FloatLiteral(Annotated {
+                    value: f64::INFINITY,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+
+        #[test]
+        fn scientific_no_dot() {
+            let s = AnnotatedString::new("123e2");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::FloatLiteral(Annotated {
+                    value: 12300.0,
+                    line: 1,
+                    column: 1
+                })]
+            );
+        }
+    }
+
+    mod character_literal {
+        use super::*;
+
+        #[test]
+        fn single() {
+            let s = AnnotatedString::new("'a'");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::CharacterLiteral(Annotated {
+                    value: 'a',
+                    line: 1,
+                    column: 1
+                }),]
+            );
+        }
+
+        #[test]
+        fn imbedded() {
+            let s = AnnotatedString::new("a 'a' b");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..2]),
+                    Token::CharacterLiteral(Annotated {
+                        value: 'a',
+                        line: 1,
+                        column: 3
+                    }),
+                    Token::Unidentified(&s[5..])
+                ]
+            );
+        }
+
+        #[test]
+        fn special() {
+            let s = AnnotatedString::new("'\\''");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::CharacterLiteral(Annotated {
+                    value: '\'',
+                    line: 1,
+                    column: 1
+                }),]
+            );
+        }
+
+        #[test]
+        fn hexadecimal() {
+            let s = AnnotatedString::new("'\\x41'");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::CharacterLiteral(Annotated {
+                    value: 'A',
+                    line: 1,
+                    column: 1
+                }),]
+            );
+        }
+
+        #[test]
+        fn octal() {
+            let s = AnnotatedString::new("'\\101'");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::CharacterLiteral(Annotated {
+                    value: 'A',
+                    line: 1,
+                    column: 1
+                }),]
+            );
+        }
+
+        #[test]
+        fn raw() {
+            let s = AnnotatedString::new("r'\\'");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::CharacterLiteral(Annotated {
+                    value: '\\',
+                    line: 1,
+                    column: 2
+                }),]
+            );
+        }
+
+        #[test]
+        fn too_short() {
+            let s = AnnotatedString::new("''");
+            let result = find_literals(&s).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::CharacterLiteralLength,
+                    line: 1,
+                    column: 1
+                }
+            );
+        }
+
+        #[test]
+        fn too_long() {
+            let s = AnnotatedString::new("'ab'");
+            let result = find_literals(&s).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::CharacterLiteralLength,
+                    line: 1,
+                    column: 1
+                }
+            );
+        }
+
+        #[test]
+        fn not_ended() {
+            let s = AnnotatedString::new("'a");
+            let result = find_literals(&s).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::TextLiteralMissingEnd('\''),
+                    line: 1,
+                    column: 1
+                }
+            );
+        }
+
+        #[test]
+        fn invalid_escape_sequence() {
+            let s = AnnotatedString::new("'\\z'");
+            let result = find_literals(&s).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::TextLiteralInvalidEscapeSequence("z".to_string()),
+                    line: 1,
+                    column: 3
+                }
+            );
+        }
+
+        #[test]
+        fn invalid_escape_digit() {
+            let s = AnnotatedString::new("'\\xt'");
+            let result = find_literals(&s).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::TextLiteralInvalidEscapeValueDigit("t".to_string()),
+                    line: 1,
+                    column: 4
+                }
+            );
+        }
+
+        #[test]
+        fn large_escape_value() {
+            let s = AnnotatedString::new("'\\777'");
+            let result = find_literals(&s).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::TextLiteralLargeEscapeValue,
+                    line: 1,
+                    column: 5
+                }
+            );
+        }
+    }
+
+    mod string_literal {
+        use super::*;
+
+        #[test]
+        fn single() {
+            let s = AnnotatedString::new("\"a\"");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::StringLiteral(Annotated {
+                    value: "a".to_string(),
+                    line: 1,
+                    column: 1
+                }),]
+            );
+        }
+
+        #[test]
+        fn imbedded() {
+            let s = AnnotatedString::new("a \"a\" b");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..2]),
+                    Token::StringLiteral(Annotated {
+                        value: "a".to_string(),
+                        line: 1,
+                        column: 3
+                    }),
+                    Token::Unidentified(&s[5..])
+                ]
+            );
+        }
+
+        #[test]
+        fn special() {
+            let s = AnnotatedString::new("\"\\\"\"");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::StringLiteral(Annotated {
+                    value: "\"".to_string(),
+                    line: 1,
+                    column: 1
+                }),]
+            );
+        }
+
+        #[test]
+        fn hexadecimal() {
+            let s = AnnotatedString::new("\"\\x41\"");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::StringLiteral(Annotated {
+                    value: "A".to_string(),
+                    line: 1,
+                    column: 1
+                }),]
+            );
+        }
+
+        #[test]
+        fn octal() {
+            let s = AnnotatedString::new("\"\\101\"");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::StringLiteral(Annotated {
+                    value: "A".to_string(),
+                    line: 1,
+                    column: 1
+                }),]
+            );
+        }
+
+        #[test]
+        fn raw() {
+            let s = AnnotatedString::new("r\"\\\"");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::StringLiteral(Annotated {
+                    value: "\\".to_string(),
+                    line: 1,
+                    column: 2
+                }),]
+            );
+        }
+
+        #[test]
+        fn long() {
+            let s = AnnotatedString::new("\"ab\"");
+            let result = find_literals(&s).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::StringLiteral(Annotated {
+                    value: "ab".to_string(),
+                    line: 1,
+                    column: 1
+                }),]
+            );
+        }
+
+        #[test]
+        fn not_ended() {
+            let s = AnnotatedString::new("\"a");
+            let result = find_literals(&s).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::TextLiteralMissingEnd('"'),
+                    line: 1,
+                    column: 1
+                }
+            );
+        }
+
+        #[test]
+        fn invalid_escape_sequence() {
+            let s = AnnotatedString::new("\"\\z\"");
+            let result = find_literals(&s).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::TextLiteralInvalidEscapeSequence("z".to_string()),
+                    line: 1,
+                    column: 3
+                }
+            );
+        }
+
+        #[test]
+        fn invalid_escape_digit() {
+            let s = AnnotatedString::new("\"\\xt\"");
+            let result = find_literals(&s).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::TextLiteralInvalidEscapeValueDigit("t".to_string()),
+                    line: 1,
+                    column: 4
+                }
+            );
+        }
+
+        #[test]
+        fn large_escape_value() {
+            let s = AnnotatedString::new("\"\\777\"");
+            let result = find_literals(&s).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::TextLiteralLargeEscapeValue,
+                    line: 1,
+                    column: 5
+                }
+            );
+        }
+    }
 }

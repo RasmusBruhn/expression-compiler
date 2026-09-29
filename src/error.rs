@@ -10,7 +10,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Represents an error that occurred during the compilation of an expression,
 /// including its position in the source code
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Error {
     /// The error that occurred
     pub error: ErrorCore,
@@ -37,14 +37,14 @@ pub enum ErrorCore {
     #[error("No error")]
     None,
     /// A string literal contains an invalid escape sequence
-    #[error("String or character literal contains an invalid escape sequence: '{}'", .0)]
+    #[error("String or character literal contains an invalid escape sequence: '\\{}'", .0)]
     TextLiteralInvalidEscapeSequence(String),
     /// A string literal contains an invalid digit in escape sequence
     #[error("String or character literal contains an invalid digit in escape sequence: '{}'", .0)]
     TextLiteralInvalidEscapeValueDigit(String),
     /// A string literal contains an escape sequence with a value larger than 255
     #[error("String or character literal contains an escape sequence with a value larger than 255")]
-    TextLiteralLargeEscapeValue(),
+    TextLiteralLargeEscapeValue,
     /// A string literal was not properly closed with a double quote
     #[error("Text literal not properly closed, expected '{}'", .0)]
     TextLiteralMissingEnd(char),
