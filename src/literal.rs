@@ -281,21 +281,21 @@ fn find_value_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
         // Attempt to parse a literal
         if allow_literal {
             let mut skip_count = 0;
-            if let Some(parsed) = parse_float_literal(&s[i..]) {
+            if let Some(parsed) = parse_float_literal(&s[i..])? {
                 result.push(Token::FloatLiteral(Annotated {
                     value: parsed.value,
                     line: c.line,
                     column: c.column,
                 }));
                 skip_count = parsed.count;
-            } else if let Some(parsed) = parse_int_literal(&s[i..]) {
+            } else if let Some(parsed) = parse_int_literal(&s[i..], false)? {
                 result.push(Token::IntegerLiteral(Annotated {
                     value: parsed.value,
                     line: c.line,
                     column: c.column,
                 }));
                 skip_count = parsed.count;
-            } else if let Some(parsed) = parse_bool_literal(&s[i..]) {
+            } else if let Some(parsed) = parse_bool_literal(&s[i..])? {
                 result.push(Token::BooleanLiteral(Annotated {
                     value: parsed.value,
                     line: c.line,
@@ -350,8 +350,94 @@ where
 /// # Parameters
 ///
 /// s: The annotated string slice to parse the float literal from
-fn parse_float_literal(s: &AnnotatedStr) -> Option<ParsedLiteral<f64>> {
-    todo!()
+fn parse_float_literal(s: &AnnotatedStr) -> Result<Option<ParsedLiteral<f64>>> {
+    // Make sure there is at least one digit at the start of the string slice or a dot
+    if s.is_empty()
+        || !(s[0].value.is_digit(10)
+            || (s[0].value == '.' && s.len() > 1 && s[1].value.is_digit(10)))
+    {
+        return Ok(None);
+    }
+
+    // Parse value
+    let mut value = 0.0;
+    let mut divisor = None;
+    let mut count = s.len();
+    let mut iterator = s.iter().enumerate();
+    while let Some((i, c)) = iterator.next() {
+        if c.value.is_digit(10) {
+            // Handle digit
+            let digit = c.value.to_digit(10).unwrap() as f64;
+            if let Some(d) = &mut divisor {
+                value += digit / *d;
+                *d *= 10.0;
+            } else {
+                value = value * 10.0 + digit;
+            }
+        } else if c.value == '.' {
+            // Handle dot
+            if let Some(_) = divisor {
+                count = i;
+                break;
+            }
+
+            divisor = Some(10.0);
+        } else if c.value == 'e' || c.value == 'E' {
+            // Detect exponential
+            let (sign, begin_exponent) = if s.len() > i + 1 && s[i + 1].value == '+' {
+                (1.0, i + 2)
+            } else if s.len() > i + 1 && s[i + 1].value == '-' {
+                (-1.0, i + 2)
+            } else {
+                (1.0, i + 1)
+            };
+
+            // Parse the exponent part of the float literal
+            let exponent = match parse_int_literal(&s[begin_exponent..], true) {
+                Ok(value) => {
+                    if let Some(value) = value {
+                        value
+                    } else {
+                        count = i;
+                        break;
+                    }
+                }
+                Err(value) => {
+                    if value.error == ErrorCore::IntegerLiteralTooLarge {
+                        let exponent_length = s[begin_exponent..]
+                            .iter()
+                            .enumerate()
+                            .skip_while(|(_, c)| c.value.is_digit(10))
+                            .next()
+                            .map_or(s[begin_exponent..].len(), |(i, _)| i);
+
+                        ParsedLiteral {
+                            value: u64::MAX,
+                            count: exponent_length,
+                        }
+                    } else {
+                        return Err(value);
+                    }
+                }
+            };
+
+            value *= 10.0_f64.powf((exponent.value as f64) * sign);
+            divisor = Some(1.0);
+            count = begin_exponent + exponent.count;
+            break;
+        } else {
+            // End of the float literal
+            count = i;
+            break;
+        }
+    }
+
+    // Make sure it is not an integer
+    if let None = divisor {
+        return Ok(None);
+    }
+
+    Ok(Some(ParsedLiteral { value, count }))
 }
 
 /// Attempts to parse an integer literal from the annotated string, it must start
@@ -361,7 +447,9 @@ fn parse_float_literal(s: &AnnotatedStr) -> Option<ParsedLiteral<f64>> {
 /// # Parameters
 ///
 /// s: The annotated string slice to parse the integer literal from
-fn parse_int_literal(s: &AnnotatedStr) -> Option<ParsedLiteral<u64>> {
+///
+/// only_decimal: If true, only decimal literals are allowed
+fn parse_int_literal(s: &AnnotatedStr, only_decimal: bool) -> Result<Option<ParsedLiteral<u64>>> {
     let mut radix = 0;
     let mut skip_count = 0;
 
@@ -380,12 +468,12 @@ fn parse_int_literal(s: &AnnotatedStr) -> Option<ParsedLiteral<u64>> {
         radix = 10;
         skip_count = 0;
     } else {
-        return None;
+        return Ok(None);
     }
 
     // Make sure there is at least one digit after the prefix
-    if !s[skip_count].value.is_digit(radix) {
-        return None;
+    if !s[skip_count].value.is_digit(radix) || (only_decimal && radix != 10) {
+        return Ok(None);
     }
 
     // Parse the literal
@@ -398,11 +486,21 @@ fn parse_int_literal(s: &AnnotatedStr) -> Option<ParsedLiteral<u64>> {
             break;
         }
 
+        // Make sure value is not too large
+        let new_digit = c.value.to_digit(radix).unwrap() as u64;
+        if value > (u64::MAX - new_digit) / (radix as u64) {
+            return Err(Error {
+                error: ErrorCore::IntegerLiteralTooLarge,
+                line: c.line,
+                column: c.column,
+            });
+        }
+
         // Accumulate the digit value
         value = value * (radix as u64) + c.value.to_digit(radix).unwrap() as u64;
     }
 
-    return Some(ParsedLiteral { value, count });
+    return Ok(Some(ParsedLiteral { value, count }));
 }
 
 /// Attempts to parse a boolean literal from the annotated string, it must start
@@ -412,29 +510,31 @@ fn parse_int_literal(s: &AnnotatedStr) -> Option<ParsedLiteral<u64>> {
 /// # Parameters
 ///
 /// s: The annotated string slice to parse the integer literal from
-fn parse_bool_literal(s: &AnnotatedStr) -> Option<ParsedLiteral<bool>> {
-    return if s.len() >= 4
-        && s[0].value == 't'
-        && s[1].value == 'r'
-        && s[2].value == 'u'
-        && s[3].value == 'e'
-    {
-        Some(ParsedLiteral {
-            value: true,
-            count: 4,
-        })
-    } else if s.len() >= 5
-        && s[0].value == 'f'
-        && s[1].value == 'a'
-        && s[2].value == 'l'
-        && s[3].value == 's'
-        && s[4].value == 'e'
-    {
-        Some(ParsedLiteral {
-            value: false,
-            count: 5,
-        })
-    } else {
-        None
-    };
+fn parse_bool_literal(s: &AnnotatedStr) -> Result<Option<ParsedLiteral<bool>>> {
+    return Ok(
+        if s.len() >= 4
+            && s[0].value == 't'
+            && s[1].value == 'r'
+            && s[2].value == 'u'
+            && s[3].value == 'e'
+        {
+            Some(ParsedLiteral {
+                value: true,
+                count: 4,
+            })
+        } else if s.len() >= 5
+            && s[0].value == 'f'
+            && s[1].value == 'a'
+            && s[2].value == 'l'
+            && s[3].value == 's'
+            && s[4].value == 'e'
+        {
+            Some(ParsedLiteral {
+                value: false,
+                count: 5,
+            })
+        } else {
+            None
+        },
+    );
 }

@@ -31,7 +31,7 @@ impl Display for Error {
 }
 
 /// Errors during compilation of expressions
-#[derive(thiserror::Error, Debug, Clone)]
+#[derive(thiserror::Error, Debug, Clone, PartialEq)]
 pub enum ErrorCore {
     /// No error
     #[error("No error")]
@@ -51,4 +51,7 @@ pub enum ErrorCore {
     /// A character literal does not contain exactly one character
     #[error("Character literal does not contain exactly one character")]
     CharacterLiteralLength,
+    /// An integer literal is too large to fit in the target type
+    #[error("Integer literal is too large to fit in the target type (u64)")]
+    IntegerLiteralTooLarge,
 }
