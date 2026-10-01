@@ -1353,4 +1353,54 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn empty() {
+        let s = AnnotatedString::new("");
+        let result = find_literals(&s).unwrap();
+
+        assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn multiple() {
+        let s = AnnotatedString::new("a \"string\"\nb 'c'\nc 123\nd 4.56\ne true");
+        let result = find_literals(&s).unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                Token::Unidentified(&s[0..2]),
+                Token::StringLiteral(Annotated {
+                    value: "string".to_string(),
+                    line: 1,
+                    column: 3
+                }),
+                Token::Unidentified(&s[10..13]),
+                Token::CharacterLiteral(Annotated {
+                    value: 'c',
+                    line: 2,
+                    column: 3
+                }),
+                Token::Unidentified(&s[16..19]),
+                Token::IntegerLiteral(Annotated {
+                    value: 123,
+                    line: 3,
+                    column: 3
+                }),
+                Token::Unidentified(&s[22..25]),
+                Token::FloatLiteral(Annotated {
+                    value: 4.56,
+                    line: 4,
+                    column: 3
+                }),
+                Token::Unidentified(&s[29..32]),
+                Token::BooleanLiteral(Annotated {
+                    value: true,
+                    line: 5,
+                    column: 3
+                }),
+            ]
+        );
+    }
 }

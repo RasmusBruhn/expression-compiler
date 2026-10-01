@@ -7,6 +7,7 @@
 mod annotate;
 mod error;
 mod literal;
+mod separator;
 
 pub use annotate::Annotated;
 pub use error::{Error, ErrorCore, Result};
