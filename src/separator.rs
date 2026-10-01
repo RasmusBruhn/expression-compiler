@@ -127,3 +127,437 @@ pub(crate) fn find_separators_str<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'
 
     return Ok(result);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::annotate::AnnotatedString;
+
+    mod dot {
+        use super::*;
+
+        #[test]
+        fn single() {
+            let s = AnnotatedString::new(".");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::Dot(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 1,
+                })]
+            );
+        }
+
+        #[test]
+        fn imbedded() {
+            let s = AnnotatedString::new("a.b");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..1]),
+                    Token::Dot(Annotated {
+                        value: (),
+                        line: 1,
+                        column: 2,
+                    }),
+                    Token::Unidentified(&s[2..3]),
+                ]
+            );
+        }
+    }
+
+    mod comma {
+        use super::*;
+
+        #[test]
+        fn single() {
+            let s = AnnotatedString::new(",");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::Comma(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 1,
+                })]
+            );
+        }
+
+        #[test]
+        fn imbedded() {
+            let s = AnnotatedString::new("a,b");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..1]),
+                    Token::Comma(Annotated {
+                        value: (),
+                        line: 1,
+                        column: 2,
+                    }),
+                    Token::Unidentified(&s[2..3]),
+                ]
+            );
+        }
+    }
+
+    mod colon {
+        use super::*;
+
+        #[test]
+        fn single() {
+            let s = AnnotatedString::new(":");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::Colon(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 1,
+                })]
+            );
+        }
+
+        #[test]
+        fn imbedded() {
+            let s = AnnotatedString::new("a:b");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..1]),
+                    Token::Colon(Annotated {
+                        value: (),
+                        line: 1,
+                        column: 2,
+                    }),
+                    Token::Unidentified(&s[2..3]),
+                ]
+            );
+        }
+    }
+
+    mod open_bracket {
+        use super::*;
+
+        #[test]
+        fn single() {
+            let s = AnnotatedString::new("(");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::OpenBracket(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 1,
+                })]
+            );
+        }
+
+        #[test]
+        fn imbedded() {
+            let s = AnnotatedString::new("a(b");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..1]),
+                    Token::OpenBracket(Annotated {
+                        value: (),
+                        line: 1,
+                        column: 2,
+                    }),
+                    Token::Unidentified(&s[2..3]),
+                ]
+            );
+        }
+    }
+
+    mod close_bracket {
+        use super::*;
+
+        #[test]
+        fn single() {
+            let s = AnnotatedString::new(")");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::CloseBracket(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 1,
+                })]
+            );
+        }
+
+        #[test]
+        fn imbedded() {
+            let s = AnnotatedString::new("a)b");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..1]),
+                    Token::CloseBracket(Annotated {
+                        value: (),
+                        line: 1,
+                        column: 2,
+                    }),
+                    Token::Unidentified(&s[2..3]),
+                ]
+            );
+        }
+    }
+
+    mod open_square_bracket {
+        use super::*;
+
+        #[test]
+        fn single() {
+            let s = AnnotatedString::new("[");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::OpenSquareBracket(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 1,
+                })]
+            );
+        }
+
+        #[test]
+        fn imbedded() {
+            let s = AnnotatedString::new("a[b");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..1]),
+                    Token::OpenSquareBracket(Annotated {
+                        value: (),
+                        line: 1,
+                        column: 2,
+                    }),
+                    Token::Unidentified(&s[2..3]),
+                ]
+            );
+        }
+    }
+
+    mod close_square_bracket {
+        use super::*;
+
+        #[test]
+        fn single() {
+            let s = AnnotatedString::new("]");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::CloseSquareBracket(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 1,
+                })]
+            );
+        }
+
+        #[test]
+        fn imbedded() {
+            let s = AnnotatedString::new("a]b");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..1]),
+                    Token::CloseSquareBracket(Annotated {
+                        value: (),
+                        line: 1,
+                        column: 2,
+                    }),
+                    Token::Unidentified(&s[2..3]),
+                ]
+            );
+        }
+    }
+
+    mod open_curly_bracket {
+        use super::*;
+
+        #[test]
+        fn single() {
+            let s = AnnotatedString::new("{");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::OpenCurlyBracket(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 1,
+                })]
+            );
+        }
+
+        #[test]
+        fn imbedded() {
+            let s = AnnotatedString::new("a{b");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..1]),
+                    Token::OpenCurlyBracket(Annotated {
+                        value: (),
+                        line: 1,
+                        column: 2,
+                    }),
+                    Token::Unidentified(&s[2..3]),
+                ]
+            );
+        }
+    }
+
+    mod close_curly_bracket {
+        use super::*;
+
+        #[test]
+        fn single() {
+            let s = AnnotatedString::new("}");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::CloseCurlyBracket(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 1,
+                })]
+            );
+        }
+
+        #[test]
+        fn imbedded() {
+            let s = AnnotatedString::new("a}b");
+            let tokens = literal::find_literals(&s).unwrap();
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(&s[0..1]),
+                    Token::CloseCurlyBracket(Annotated {
+                        value: (),
+                        line: 1,
+                        column: 2,
+                    }),
+                    Token::Unidentified(&s[2..3]),
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn empty() {
+        let s = AnnotatedString::new("");
+        let tokens = literal::find_literals(&s).unwrap();
+        let result = find_separators(tokens).unwrap();
+
+        assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn multiple() {
+        let s = AnnotatedString::new(".,:()\n[]{}");
+        let tokens = literal::find_literals(&s).unwrap();
+        let result = find_separators(tokens).unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                Token::Dot(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 1,
+                }),
+                Token::Comma(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 2,
+                }),
+                Token::Colon(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 3,
+                }),
+                Token::OpenBracket(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 4,
+                }),
+                Token::CloseBracket(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 5,
+                }),
+                Token::Unidentified(&s[5..6]),
+                Token::OpenSquareBracket(Annotated {
+                    value: (),
+                    line: 2,
+                    column: 1,
+                }),
+                Token::CloseSquareBracket(Annotated {
+                    value: (),
+                    line: 2,
+                    column: 2,
+                }),
+                Token::OpenCurlyBracket(Annotated {
+                    value: (),
+                    line: 2,
+                    column: 3,
+                }),
+                Token::CloseCurlyBracket(Annotated {
+                    value: (),
+                    line: 2,
+                    column: 4,
+                }),
+            ]
+        );
+    }
+}
