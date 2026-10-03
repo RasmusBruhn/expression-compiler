@@ -2,7 +2,11 @@
 //! This module provides functionality for handling operators within expressions.
 //!
 
-use crate::Type;
+use crate::{
+    Error, ErrorCore, Result, Type,
+    annotate::{Annotated, AnnotatedStr, AnnotatedString, to_string},
+    separator,
+};
 use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -26,7 +30,9 @@ impl Operator {
 /// Defines a single left-sided (like ++x) operator
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct OperatorLeft {
-    /// The symbol representing the operator (e.g., "++" for increment)
+    /// The symbol representing the operator (e.g., "++" for increment), must
+    /// not contain (alphanumerical characters, whitespace, underscore, dot,
+    /// comma, colon, or any brackets)
     pub symbol: String,
     /// The type of the operator (e.g., integer, float)
     pub typ: Type,
@@ -38,7 +44,9 @@ pub struct OperatorLeft {
 /// Defines a single right-sided (like x++) operator
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct OperatorRight {
-    /// The symbol representing the operator (e.g., "++" for increment)
+    /// The symbol representing the operator (e.g., "++" for increment), must
+    /// not contain (alphanumerical characters, whitespace, underscore, dot,
+    /// comma, colon, or any brackets)
     pub symbol: String,
     /// The type of the operator (e.g., integer, float)
     pub typ: Type,
@@ -50,7 +58,9 @@ pub struct OperatorRight {
 /// Defines a single both-sided (like x+y) operator
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct OperatorBoth {
-    /// The symbol representing the operator (e.g., "++" for increment)
+    /// The symbol representing the operator (e.g., "++" for increment), must
+    /// not contain (alphanumerical characters, whitespace, underscore, dot,
+    /// comma, colon, or any brackets)
     pub symbol: String,
     /// The type of the left operand (e.g., integer, float)
     pub typ_left: Type,
@@ -64,7 +74,9 @@ pub struct OperatorBoth {
 /// A group of operators with the same symbol
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) struct OperatorGroup {
-    /// The symbol representing the operator group (e.g., "++" for increment)
+    /// The symbol representing the operator group (e.g., "++" for increment),
+    /// must not contain (alphanumerical characters, whitespace, underscore,
+    /// dot, comma, colon, or any brackets)
     pub symbol: String,
     /// All left-sided operators with this symbol
     pub left: Vec<OperatorLeft>,
@@ -74,15 +86,30 @@ pub(crate) struct OperatorGroup {
     pub both: Vec<OperatorBoth>,
 }
 
-/// Structures a list of operators into a hashmap grouped by their symbol
+/// Structures a list of operators into a hashmap grouped by their symbol, fails
+/// if any operator contains illigal characters
 ///
 /// # Parameters
 ///
 /// operators: A vector of all operators
-pub(crate) fn structure_operators(operators: Vec<Operator>) -> HashMap<String, OperatorGroup> {
+pub(crate) fn structure_operators(
+    operators: Vec<Operator>,
+) -> Result<HashMap<String, OperatorGroup>> {
     let mut map: HashMap<String, OperatorGroup> = HashMap::new();
 
     for operator in operators {
+        if operator
+            .symbol()
+            .chars()
+            .any(|c| c.is_alphanumeric() || c.is_whitespace() || "_.,:()[]{}".contains(c))
+        {
+            return Err(Error {
+                error: ErrorCore::OperatorIllegalCharacters(operator.symbol().to_string()),
+                line: 0,
+                column: 0,
+            });
+        }
+
         let symbol = operator.symbol();
         let entry = map.entry(symbol.to_string()).or_insert(OperatorGroup {
             symbol: symbol.to_string(),
@@ -104,5 +131,127 @@ pub(crate) fn structure_operators(operators: Vec<Operator>) -> HashMap<String, O
         }
     }
 
-    return map;
+    return Ok(map);
+}
+
+/// A single token extracted from an annotated string, either an unidentified
+/// segment, a literal, a separator, or an operator
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Token {
+    Unidentified(AnnotatedString),
+    StringLiteral(Annotated<String>),
+    CharacterLiteral(Annotated<char>),
+    FloatLiteral(Annotated<f64>),
+    IntegerLiteral(Annotated<u64>),
+    BooleanLiteral(Annotated<bool>),
+    Comma(Annotated<()>),
+    Dot(Annotated<()>),
+    Colon(Annotated<()>),
+    OpenBracket(Annotated<()>),
+    CloseBracket(Annotated<()>),
+    OpenSquareBracket(Annotated<()>),
+    CloseSquareBracket(Annotated<()>),
+    OpenCurlyBracket(Annotated<()>),
+    CloseCurlyBracket(Annotated<()>),
+    Operator(Annotated<String>),
+}
+
+/// Finds all operators in unidentified segments of a list of literal tokens
+///
+/// # Parameters
+///
+/// tokens: A slice of literal tokens to search for operators within
+///
+/// operators: A reference to a hashmap containing operator names and their
+/// corresponding groups
+pub(crate) fn find_operators(
+    tokens: Vec<separator::Token>,
+    operators: &HashMap<String, OperatorGroup>,
+) -> Result<Vec<Token>> {
+    // Get the names of operators in the order to detect them (that is long
+    // names first to ensure substrings do not split longer, like == being
+    // detected as two = signs)
+    let mut operators = operators.keys().cloned().collect::<Vec<String>>();
+    operators.sort_by(|a, b| b.len().cmp(&a.len()));
+
+    // Convert all tokens
+    let mut result = Vec::new();
+
+    for token in tokens {
+        match token {
+            separator::Token::StringLiteral(x) => result.push(Token::StringLiteral(x)),
+            separator::Token::CharacterLiteral(x) => result.push(Token::CharacterLiteral(x)),
+            separator::Token::FloatLiteral(x) => result.push(Token::FloatLiteral(x)),
+            separator::Token::IntegerLiteral(x) => result.push(Token::IntegerLiteral(x)),
+            separator::Token::BooleanLiteral(x) => result.push(Token::BooleanLiteral(x)),
+            separator::Token::Dot(x) => result.push(Token::Dot(x)),
+            separator::Token::Comma(x) => result.push(Token::Comma(x)),
+            separator::Token::Colon(x) => result.push(Token::Colon(x)),
+            separator::Token::OpenBracket(x) => result.push(Token::OpenBracket(x)),
+            separator::Token::CloseBracket(x) => result.push(Token::CloseBracket(x)),
+            separator::Token::OpenSquareBracket(x) => result.push(Token::OpenSquareBracket(x)),
+            separator::Token::CloseSquareBracket(x) => result.push(Token::CloseSquareBracket(x)),
+            separator::Token::OpenCurlyBracket(x) => result.push(Token::OpenCurlyBracket(x)),
+            separator::Token::CloseCurlyBracket(x) => result.push(Token::CloseCurlyBracket(x)),
+            separator::Token::Unidentified(x) => result.extend(find_operators_str(&x, &operators)?),
+        }
+    }
+
+    return Ok(result);
+}
+
+/// Finds all operators in a single annotated string
+///
+/// # Parameters
+///
+/// s: The annotated string to search for operators within
+///
+/// operators: A slice of operator names to search for within the annotated
+/// string, in the order to detect them
+pub(crate) fn find_operators_str(s: &AnnotatedStr, operators: &[String]) -> Result<Vec<Token>> {
+    let mut result = Vec::new();
+
+    let mut start = 0;
+    let mut begin = 0;
+    while begin < s.len() {
+        let mut matched = false;
+        for operator in operators {
+            // Do not consider operators that would extend beyond the end of the string
+            let end = begin + operator.len();
+            if end > s.len() {
+                continue;
+            }
+
+            // Check if operator is at the current position in the string
+            if to_string(&s[begin..end]) == *operator {
+                if start < begin {
+                    result.push(Token::Unidentified(AnnotatedString::from_str(
+                        &s[start..begin],
+                    )));
+                }
+
+                result.push(Token::Operator(Annotated {
+                    value: operator.clone(),
+                    line: s[begin].line,
+                    column: s[begin].column,
+                }));
+
+                begin += operator.len();
+                start = begin;
+                matched = true;
+                break;
+            }
+        }
+
+        // Make sure begin is advanced if no operator was matched
+        if !matched {
+            begin += 1;
+        }
+    }
+
+    if start < s.len() {
+        result.push(Token::Unidentified(AnnotatedString::from_str(&s[start..])));
+    }
+
+    return Ok(result);
 }

@@ -13,4 +13,5 @@ mod types;
 
 pub use annotate::Annotated;
 pub use error::{Error, ErrorCore, Result};
+pub use operator::{Operator, OperatorBoth, OperatorLeft, OperatorRight};
 pub use types::Type;

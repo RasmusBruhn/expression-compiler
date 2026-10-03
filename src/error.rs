@@ -22,11 +22,15 @@ pub struct Error {
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "line {}, column {}: {}",
-            self.line, self.column, self.error
-        )
+        if self.line == 0 && self.column == 0 {
+            write!(f, "{}", self.error)
+        } else {
+            write!(
+                f,
+                "line {}, column {}: {}",
+                self.line, self.column, self.error
+            )
+        }
     }
 }
 
@@ -54,4 +58,7 @@ pub enum ErrorCore {
     /// An integer literal is too large to fit in the target type
     #[error("Integer literal is too large to fit in the target type (u64)")]
     IntegerLiteralTooLarge,
+    /// An operator contains illegal characters
+    #[error("Operator contains illegal characters: '{}'", .0)]
+    OperatorIllegalCharacters(String),
 }
