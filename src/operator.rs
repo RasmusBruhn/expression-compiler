@@ -5,7 +5,7 @@
 use crate::{
     Error, ErrorCore, Result, Type,
     annotate::{Annotated, AnnotatedStr, AnnotatedString, to_string},
-    separator,
+    literal, separator,
 };
 use std::collections::HashMap;
 
@@ -254,4 +254,240 @@ pub(crate) fn find_operators_str(s: &AnnotatedStr, operators: &[String]) -> Resu
     }
 
     return Ok(result);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod structure_operators {
+        use super::*;
+
+        #[test]
+        fn illegal_characters() {
+            let operators = vec![
+                Operator::Left(OperatorLeft {
+                    symbol: "a".to_string(),
+                    priority: 0,
+                    typ: Type::String,
+                }),
+                Operator::Left(OperatorLeft {
+                    symbol: "1".to_string(),
+                    priority: 0,
+                    typ: Type::String,
+                }),
+                Operator::Left(OperatorLeft {
+                    symbol: " ".to_string(),
+                    priority: 0,
+                    typ: Type::String,
+                }),
+                Operator::Left(OperatorLeft {
+                    symbol: ".".to_string(),
+                    priority: 0,
+                    typ: Type::String,
+                }),
+            ];
+
+            for operator in &operators {
+                let result = structure_operators(vec![operator.clone()]).unwrap_err();
+
+                assert_eq!(
+                    result,
+                    Error {
+                        error: ErrorCore::OperatorIllegalCharacters(operator.symbol().to_string()),
+                        line: 0,
+                        column: 0,
+                    }
+                );
+            }
+        }
+
+        #[test]
+        fn single() {
+            let operators = vec![Operator::Left(OperatorLeft {
+                symbol: "+".to_string(),
+                priority: 0,
+                typ: Type::String,
+            })];
+
+            let result = structure_operators(operators).unwrap();
+            assert_eq!(result.len(), 1);
+        }
+
+        #[test]
+        fn multiple() {
+            let operators = vec![
+                Operator::Left(OperatorLeft {
+                    symbol: "+".to_string(),
+                    priority: 0,
+                    typ: Type::String,
+                }),
+                Operator::Left(OperatorLeft {
+                    symbol: "-".to_string(),
+                    priority: 0,
+                    typ: Type::String,
+                }),
+            ];
+
+            let result = structure_operators(operators).unwrap();
+            assert_eq!(result.len(), 2);
+        }
+
+        #[test]
+        fn duplicate() {
+            let operators = vec![
+                Operator::Left(OperatorLeft {
+                    symbol: "+".to_string(),
+                    priority: 0,
+                    typ: Type::String,
+                }),
+                Operator::Left(OperatorLeft {
+                    symbol: "+".to_string(),
+                    priority: 0,
+                    typ: Type::Character,
+                }),
+            ];
+
+            let result = structure_operators(operators).unwrap();
+            assert_eq!(result.len(), 1);
+        }
+    }
+
+    mod find_operators {
+        use super::*;
+
+        #[test]
+        fn none() {
+            let operators = vec![];
+            let operators = structure_operators(operators).unwrap();
+
+            let s = AnnotatedString::new("a+b");
+            let tokens = literal::find_literals(&s).unwrap();
+            let tokens = separator::find_separators(tokens).unwrap();
+            let result = find_operators(tokens, &operators).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::Unidentified(AnnotatedString::from_str(&s))]
+            );
+        }
+
+        #[test]
+        fn single() {
+            let operators = vec![Operator::Left(OperatorLeft {
+                symbol: "+".to_string(),
+                priority: 0,
+                typ: Type::String,
+            })];
+            let operators = structure_operators(operators).unwrap();
+
+            let s = AnnotatedString::new("a+b");
+            let tokens = literal::find_literals(&s).unwrap();
+            let tokens = separator::find_separators(tokens).unwrap();
+            let result = find_operators(tokens, &operators).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..1])),
+                    Token::Operator(Annotated {
+                        value: "+".to_string(),
+                        line: 1,
+                        column: 2
+                    }),
+                    Token::Unidentified(AnnotatedString::from_str(&s[2..3])),
+                ]
+            );
+        }
+
+        #[test]
+        fn multiple() {
+            let operators = vec![
+                Operator::Left(OperatorLeft {
+                    symbol: "+".to_string(),
+                    priority: 0,
+                    typ: Type::String,
+                }),
+                Operator::Left(OperatorLeft {
+                    symbol: "-".to_string(),
+                    priority: 0,
+                    typ: Type::String,
+                }),
+            ];
+            let operators = structure_operators(operators).unwrap();
+
+            let s = AnnotatedString::new("+a+-b-");
+            let tokens = literal::find_literals(&s).unwrap();
+            let tokens = separator::find_separators(tokens).unwrap();
+            let result = find_operators(tokens, &operators).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Operator(Annotated {
+                        value: "+".to_string(),
+                        line: 1,
+                        column: 1
+                    }),
+                    Token::Unidentified(AnnotatedString::from_str(&s[1..2])),
+                    Token::Operator(Annotated {
+                        value: "+".to_string(),
+                        line: 1,
+                        column: 3
+                    }),
+                    Token::Operator(Annotated {
+                        value: "-".to_string(),
+                        line: 1,
+                        column: 4
+                    }),
+                    Token::Unidentified(AnnotatedString::from_str(&s[4..5])),
+                    Token::Operator(Annotated {
+                        value: "-".to_string(),
+                        line: 1,
+                        column: 6
+                    }),
+                ]
+            );
+        }
+
+        #[test]
+        fn substring() {
+            let operators = vec![
+                Operator::Left(OperatorLeft {
+                    symbol: "+".to_string(),
+                    priority: 0,
+                    typ: Type::String,
+                }),
+                Operator::Left(OperatorLeft {
+                    symbol: "++".to_string(),
+                    priority: 0,
+                    typ: Type::String,
+                }),
+            ];
+            let operators = structure_operators(operators).unwrap();
+
+            let s = AnnotatedString::new("a++b+");
+            let tokens = literal::find_literals(&s).unwrap();
+            let tokens = separator::find_separators(tokens).unwrap();
+            let result = find_operators(tokens, &operators).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..1])),
+                    Token::Operator(Annotated {
+                        value: "++".to_string(),
+                        line: 1,
+                        column: 2
+                    }),
+                    Token::Unidentified(AnnotatedString::from_str(&s[3..4])),
+                    Token::Operator(Annotated {
+                        value: "+".to_string(),
+                        line: 1,
+                        column: 5
+                    }),
+                ]
+            );
+        }
+    }
 }
