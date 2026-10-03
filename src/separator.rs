@@ -4,16 +4,16 @@
 //!
 
 use crate::{
-    Error, ErrorCore, Result,
-    annotate::{Annotated, AnnotatedStr},
+    Result,
+    annotate::{Annotated, AnnotatedStr, AnnotatedString},
     literal,
 };
 
 /// A single token extracted from an annotated string, either an unidentified
 /// segment, a literal, or a separator
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Token<'a> {
-    Unidentified(&'a AnnotatedStr),
+pub(crate) enum Token {
+    Unidentified(AnnotatedString),
     StringLiteral(Annotated<String>),
     CharacterLiteral(Annotated<char>),
     FloatLiteral(Annotated<f64>),
@@ -35,7 +35,7 @@ pub(crate) enum Token<'a> {
 /// # Parameters
 ///
 /// tokens: A slice of literal tokens to search for separators within
-pub(crate) fn find_separators<'a>(tokens: Vec<literal::Token<'a>>) -> Result<Vec<Token<'a>>> {
+pub(crate) fn find_separators(tokens: Vec<literal::Token>) -> Result<Vec<Token>> {
     let mut result = Vec::new();
 
     for token in tokens {
@@ -45,7 +45,7 @@ pub(crate) fn find_separators<'a>(tokens: Vec<literal::Token<'a>>) -> Result<Vec
             literal::Token::FloatLiteral(x) => result.push(Token::FloatLiteral(x)),
             literal::Token::IntegerLiteral(x) => result.push(Token::IntegerLiteral(x)),
             literal::Token::BooleanLiteral(x) => result.push(Token::BooleanLiteral(x)),
-            literal::Token::Unidentified(x) => result.extend(find_separators_str(x)?),
+            literal::Token::Unidentified(x) => result.extend(find_separators_str(&x)?),
         }
     }
 
@@ -57,7 +57,7 @@ pub(crate) fn find_separators<'a>(tokens: Vec<literal::Token<'a>>) -> Result<Vec
 /// # Parameters
 ///
 /// s: The annotated string to search for separators within
-pub(crate) fn find_separators_str<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
+pub(crate) fn find_separators_str(s: &AnnotatedStr) -> Result<Vec<Token>> {
     let mut result = Vec::new();
     let mut start = 0;
     for (i, c) in s.iter().enumerate() {
@@ -113,7 +113,7 @@ pub(crate) fn find_separators_str<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'
 
         // Add previous unidentified segment if any
         if start < i {
-            result.push(Token::Unidentified(&s[start..i]));
+            result.push(Token::Unidentified(AnnotatedString::from_str(&s[start..i])));
         }
 
         result.push(new_token);
@@ -122,7 +122,7 @@ pub(crate) fn find_separators_str<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'
 
     // Add any remaining unidentified segment if any
     if start < s.len() {
-        result.push(Token::Unidentified(&s[start..]));
+        result.push(Token::Unidentified(AnnotatedString::from_str(&s[start..])));
     }
 
     return Ok(result);
@@ -161,13 +161,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..1]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..1])),
                     Token::Dot(Annotated {
                         value: (),
                         line: 1,
                         column: 2,
                     }),
-                    Token::Unidentified(&s[2..3]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[2..3])),
                 ]
             );
         }
@@ -201,13 +201,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..1]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..1])),
                     Token::Comma(Annotated {
                         value: (),
                         line: 1,
                         column: 2,
                     }),
-                    Token::Unidentified(&s[2..3]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[2..3])),
                 ]
             );
         }
@@ -241,13 +241,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..1]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..1])),
                     Token::Colon(Annotated {
                         value: (),
                         line: 1,
                         column: 2,
                     }),
-                    Token::Unidentified(&s[2..3]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[2..3])),
                 ]
             );
         }
@@ -281,13 +281,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..1]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..1])),
                     Token::OpenBracket(Annotated {
                         value: (),
                         line: 1,
                         column: 2,
                     }),
-                    Token::Unidentified(&s[2..3]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[2..3])),
                 ]
             );
         }
@@ -321,13 +321,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..1]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..1])),
                     Token::CloseBracket(Annotated {
                         value: (),
                         line: 1,
                         column: 2,
                     }),
-                    Token::Unidentified(&s[2..3]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[2..3])),
                 ]
             );
         }
@@ -361,13 +361,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..1]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..1])),
                     Token::OpenSquareBracket(Annotated {
                         value: (),
                         line: 1,
                         column: 2,
                     }),
-                    Token::Unidentified(&s[2..3]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[2..3])),
                 ]
             );
         }
@@ -401,13 +401,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..1]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..1])),
                     Token::CloseSquareBracket(Annotated {
                         value: (),
                         line: 1,
                         column: 2,
                     }),
-                    Token::Unidentified(&s[2..3]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[2..3])),
                 ]
             );
         }
@@ -441,13 +441,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..1]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..1])),
                     Token::OpenCurlyBracket(Annotated {
                         value: (),
                         line: 1,
                         column: 2,
                     }),
-                    Token::Unidentified(&s[2..3]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[2..3])),
                 ]
             );
         }
@@ -481,13 +481,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..1]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..1])),
                     Token::CloseCurlyBracket(Annotated {
                         value: (),
                         line: 1,
                         column: 2,
                     }),
-                    Token::Unidentified(&s[2..3]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[2..3])),
                 ]
             );
         }
@@ -536,7 +536,7 @@ mod tests {
                     line: 1,
                     column: 5,
                 }),
-                Token::Unidentified(&s[5..6]),
+                Token::Unidentified(AnnotatedString::from_str(&s[5..6])),
                 Token::OpenSquareBracket(Annotated {
                     value: (),
                     line: 2,

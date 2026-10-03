@@ -5,14 +5,14 @@
 
 use crate::{
     Error, ErrorCore, Result,
-    annotate::{Annotated, AnnotatedStr},
+    annotate::{Annotated, AnnotatedStr, AnnotatedString},
 };
 
 /// A single token extracted from an annotated string, either an unidentified
 /// segment or a literal
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Token<'a> {
-    Unidentified(&'a AnnotatedStr),
+pub(crate) enum Token {
+    Unidentified(AnnotatedString),
     StringLiteral(Annotated<String>),
     CharacterLiteral(Annotated<char>),
     FloatLiteral(Annotated<f64>),
@@ -26,7 +26,7 @@ pub(crate) enum Token<'a> {
 /// # Parameters
 ///
 /// s: The annotated string to search for literals
-pub(crate) fn find_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
+pub(crate) fn find_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
     // Find all string literals
     let tokens = find_string_literals(s)?;
 
@@ -36,7 +36,7 @@ pub(crate) fn find_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
 
     for token in tokens {
         if let Token::Unidentified(s) = token {
-            let new_tokens = find_value_literals(s)?;
+            let new_tokens = find_value_literals(&s)?;
             result.extend(new_tokens);
         } else {
             result.push(token);
@@ -52,7 +52,7 @@ pub(crate) fn find_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
 /// # Parameters
 ///
 /// s: The annotated string to search for string and character literals
-fn find_string_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
+fn find_string_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
     /// Active character value escape sequence being parsed
     struct ActiveValue {
         /// The current value of the escape sequence
@@ -238,7 +238,9 @@ fn find_string_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
                 // End the previous token
                 let end = if raw_string { i - 1 } else { i };
                 if start < end {
-                    result.push(Token::Unidentified(&s[start..end]));
+                    result.push(Token::Unidentified(AnnotatedString::from_str(
+                        &s[start..end],
+                    )));
                 }
             } else if c.value == 'r' {
                 // Mark the upcoming string as a raw string literal
@@ -263,7 +265,7 @@ fn find_string_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
 
     // Add last unidentified token if any
     if start < s.len() {
-        result.push(Token::Unidentified(&s[start..]));
+        result.push(Token::Unidentified(AnnotatedString::from_str(&s[start..])));
     }
 
     return Ok(result);
@@ -275,7 +277,7 @@ fn find_string_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
 /// # Parameters
 ///
 /// s: The annotated string to search for value literals
-fn find_value_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
+fn find_value_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
     let mut result = Vec::new();
     let mut start = 0;
     let mut allow_literal = true;
@@ -283,28 +285,33 @@ fn find_value_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
     while let Some((i, c)) = iterator.next() {
         // Attempt to parse a literal
         if allow_literal {
-            let mut skip_count = 0;
-            let literal = if let Some(parsed) = parse_float_literal(&s[i..])? {
-                skip_count = parsed.count;
-                Token::FloatLiteral(Annotated {
-                    value: parsed.value,
-                    line: c.line,
-                    column: c.column,
-                })
+            let (skip_count, literal) = if let Some(parsed) = parse_float_literal(&s[i..])? {
+                (
+                    parsed.count,
+                    Token::FloatLiteral(Annotated {
+                        value: parsed.value,
+                        line: c.line,
+                        column: c.column,
+                    }),
+                )
             } else if let Some(parsed) = parse_int_literal(&s[i..], false)? {
-                skip_count = parsed.count;
-                Token::IntegerLiteral(Annotated {
-                    value: parsed.value,
-                    line: c.line,
-                    column: c.column,
-                })
+                (
+                    parsed.count,
+                    Token::IntegerLiteral(Annotated {
+                        value: parsed.value,
+                        line: c.line,
+                        column: c.column,
+                    }),
+                )
             } else if let Some(parsed) = parse_bool_literal(&s[i..])? {
-                skip_count = parsed.count;
-                Token::BooleanLiteral(Annotated {
-                    value: parsed.value,
-                    line: c.line,
-                    column: c.column,
-                })
+                (
+                    parsed.count,
+                    Token::BooleanLiteral(Annotated {
+                        value: parsed.value,
+                        line: c.line,
+                        column: c.column,
+                    }),
+                )
             } else {
                 allow_literal = !is_invalid_literal_terminator(c.value);
                 continue;
@@ -312,7 +319,7 @@ fn find_value_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
 
             // Add unidentified token for characters before the literal and the literal itself and update the start position
             if start < i {
-                result.push(Token::Unidentified(&s[start..i]));
+                result.push(Token::Unidentified(AnnotatedString::from_str(&s[start..i])));
             }
             result.push(literal);
             start = i + skip_count;
@@ -329,7 +336,7 @@ fn find_value_literals<'a>(s: &'a AnnotatedStr) -> Result<Vec<Token<'a>>> {
 
     // Get the last unidentified element
     if start < s.len() {
-        result.push(Token::Unidentified(&s[start..]));
+        result.push(Token::Unidentified(AnnotatedString::from_str(&s[start..])));
     }
 
     return Ok(result);
@@ -612,13 +619,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..2]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..2])),
                     Token::BooleanLiteral(Annotated {
                         value: true,
                         line: 1,
                         column: 3
                     }),
-                    Token::Unidentified(&s[6..])
+                    Token::Unidentified(AnnotatedString::from_str(&s[6..]))
                 ]
             );
         }
@@ -631,13 +638,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..2]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..2])),
                     Token::BooleanLiteral(Annotated {
                         value: false,
                         line: 1,
                         column: 3
                     }),
-                    Token::Unidentified(&s[7..])
+                    Token::Unidentified(AnnotatedString::from_str(&s[7..]))
                 ]
             );
         }
@@ -647,7 +654,10 @@ mod tests {
             let s = AnnotatedString::new("atrue");
             let result = find_literals(&s).unwrap();
 
-            assert_eq!(result, vec![Token::Unidentified(&s),]);
+            assert_eq!(
+                result,
+                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+            );
         }
 
         #[test]
@@ -655,7 +665,10 @@ mod tests {
             let s = AnnotatedString::new("afalse");
             let result = find_literals(&s).unwrap();
 
-            assert_eq!(result, vec![Token::Unidentified(&s),]);
+            assert_eq!(
+                result,
+                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+            );
         }
 
         #[test]
@@ -663,7 +676,10 @@ mod tests {
             let s = AnnotatedString::new("truea");
             let result = find_literals(&s).unwrap();
 
-            assert_eq!(result, vec![Token::Unidentified(&s),]);
+            assert_eq!(
+                result,
+                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+            );
         }
 
         #[test]
@@ -671,7 +687,10 @@ mod tests {
             let s = AnnotatedString::new("falsea");
             let result = find_literals(&s).unwrap();
 
-            assert_eq!(result, vec![Token::Unidentified(&s),]);
+            assert_eq!(
+                result,
+                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+            );
         }
     }
 
@@ -701,13 +720,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..2]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..2])),
                     Token::IntegerLiteral(Annotated {
                         value: 1234567890,
                         line: 1,
                         column: 3
                     }),
-                    Token::Unidentified(&s[12..])
+                    Token::Unidentified(AnnotatedString::from_str(&s[12..]))
                 ]
             );
         }
@@ -717,7 +736,10 @@ mod tests {
             let s = AnnotatedString::new("a1234567890");
             let result = find_literals(&s).unwrap();
 
-            assert_eq!(result, vec![Token::Unidentified(&s),]);
+            assert_eq!(
+                result,
+                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+            );
         }
 
         #[test]
@@ -725,7 +747,10 @@ mod tests {
             let s = AnnotatedString::new("1234567890a");
             let result = find_literals(&s).unwrap();
 
-            assert_eq!(result, vec![Token::Unidentified(&s),]);
+            assert_eq!(
+                result,
+                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+            );
         }
 
         #[test]
@@ -830,13 +855,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..2]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..2])),
                     Token::FloatLiteral(Annotated {
                         value: 123.456,
                         line: 1,
                         column: 3
                     }),
-                    Token::Unidentified(&s[9..])
+                    Token::Unidentified(AnnotatedString::from_str(&s[9..]))
                 ]
             );
         }
@@ -846,7 +871,10 @@ mod tests {
             let s = AnnotatedString::new("a123.456");
             let result = find_literals(&s).unwrap();
 
-            assert_eq!(result, vec![Token::Unidentified(&s),]);
+            assert_eq!(
+                result,
+                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+            );
         }
 
         #[test]
@@ -854,7 +882,10 @@ mod tests {
             let s = AnnotatedString::new("123.456a");
             let result = find_literals(&s).unwrap();
 
-            assert_eq!(result, vec![Token::Unidentified(&s),]);
+            assert_eq!(
+                result,
+                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+            );
         }
 
         #[test]
@@ -1019,13 +1050,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..2]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..2])),
                     Token::CharacterLiteral(Annotated {
                         value: 'a',
                         line: 1,
                         column: 3
                     }),
-                    Token::Unidentified(&s[5..])
+                    Token::Unidentified(AnnotatedString::from_str(&s[5..]))
                 ]
             );
         }
@@ -1207,13 +1238,13 @@ mod tests {
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(&s[0..2]),
+                    Token::Unidentified(AnnotatedString::from_str(&s[0..2])),
                     Token::StringLiteral(Annotated {
                         value: "a".to_string(),
                         line: 1,
                         column: 3
                     }),
-                    Token::Unidentified(&s[5..])
+                    Token::Unidentified(AnnotatedString::from_str(&s[5..]))
                 ]
             );
         }
@@ -1370,31 +1401,31 @@ mod tests {
         assert_eq!(
             result,
             vec![
-                Token::Unidentified(&s[0..2]),
+                Token::Unidentified(AnnotatedString::from_str(&s[0..2])),
                 Token::StringLiteral(Annotated {
                     value: "string".to_string(),
                     line: 1,
                     column: 3
                 }),
-                Token::Unidentified(&s[10..13]),
+                Token::Unidentified(AnnotatedString::from_str(&s[10..13])),
                 Token::CharacterLiteral(Annotated {
                     value: 'c',
                     line: 2,
                     column: 3
                 }),
-                Token::Unidentified(&s[16..19]),
+                Token::Unidentified(AnnotatedString::from_str(&s[16..19])),
                 Token::IntegerLiteral(Annotated {
                     value: 123,
                     line: 3,
                     column: 3
                 }),
-                Token::Unidentified(&s[22..25]),
+                Token::Unidentified(AnnotatedString::from_str(&s[22..25])),
                 Token::FloatLiteral(Annotated {
                     value: 4.56,
                     line: 4,
                     column: 3
                 }),
-                Token::Unidentified(&s[29..32]),
+                Token::Unidentified(AnnotatedString::from_str(&s[29..32])),
                 Token::BooleanLiteral(Annotated {
                     value: true,
                     line: 5,
