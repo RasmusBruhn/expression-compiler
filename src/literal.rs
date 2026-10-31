@@ -4,20 +4,28 @@
 //!
 
 use crate::{
-    Error, ErrorCore, Result,
+    Error, ErrorCore, Result, TempToken, Token,
     annotate::{Annotated, AnnotatedStr, AnnotatedString},
 };
 
-/// A single token extracted from an annotated string, either an unidentified
-/// segment or a literal
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Token {
-    Unidentified(AnnotatedString),
-    StringLiteral(Annotated<String>),
-    CharacterLiteral(Annotated<char>),
-    FloatLiteral(Annotated<f64>),
-    IntegerLiteral(Annotated<u64>),
-    BooleanLiteral(Annotated<bool>),
+/// Finds all literals (string, character, float, integer, boolean) in each
+/// unidentified token
+///
+/// # Parameters
+///
+/// tokens: The input tokens to search for literals
+pub(crate) fn find_literals(tokens: Vec<TempToken>) -> Result<Vec<TempToken>> {
+    let mut result = Vec::new();
+    result.reserve(tokens.len());
+
+    for token in tokens.into_iter() {
+        match token {
+            TempToken::Token(token) => result.push(TempToken::Token(token)),
+            TempToken::Unidentified(s) => result.extend(find_literals_single(&s)?.into_iter()),
+        }
+    }
+
+    return Ok(result);
 }
 
 /// Finds all literals (string, character, float, integer, boolean) in the
@@ -25,8 +33,8 @@ pub(crate) enum Token {
 ///
 /// # Parameters
 ///
-/// s: The annotated string to search for literals
-pub(crate) fn find_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
+/// s: The input string to search for literals
+fn find_literals_single(s: &AnnotatedStr) -> Result<Vec<TempToken>> {
     // Find all string literals
     let tokens = find_string_literals(s)?;
 
@@ -34,12 +42,10 @@ pub(crate) fn find_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
     let mut result = Vec::new();
     result.reserve(tokens.len());
 
-    for token in tokens {
-        if let Token::Unidentified(s) = token {
-            let new_tokens = find_value_literals(&s)?;
-            result.extend(new_tokens);
-        } else {
-            result.push(token);
+    for token in tokens.into_iter() {
+        match token {
+            TempToken::Token(token) => result.push(TempToken::Token(token)),
+            TempToken::Unidentified(s) => result.extend(find_value_literals(&s)?.into_iter()),
         }
     }
 
@@ -52,7 +58,7 @@ pub(crate) fn find_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
 /// # Parameters
 ///
 /// s: The annotated string to search for string and character literals
-fn find_string_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
+fn find_string_literals(s: &AnnotatedStr) -> Result<Vec<TempToken>> {
     /// Active character value escape sequence being parsed
     struct ActiveValue {
         /// The current value of the escape sequence
@@ -176,11 +182,11 @@ fn find_string_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
             } else if c.value == active_string.escape_character {
                 // End of active string literal
                 if active_string.escape_character == '"' {
-                    result.push(Token::StringLiteral(Annotated {
+                    result.push(TempToken::Token(Token::StringLiteral(Annotated {
                         value: active_string.current_string,
                         line: active_string.line,
                         column: active_string.column,
-                    }));
+                    })));
                 } else {
                     // Ensure character literal has exactly one character
                     if active_string.current_string.chars().count() != 1 {
@@ -191,11 +197,11 @@ fn find_string_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
                         });
                     }
 
-                    result.push(Token::CharacterLiteral(Annotated {
+                    result.push(TempToken::Token(Token::CharacterLiteral(Annotated {
                         value: active_string.current_string.chars().next().unwrap(),
                         line: active_string.line,
                         column: active_string.column,
-                    }));
+                    })));
                 }
 
                 start = i + 1;
@@ -238,7 +244,7 @@ fn find_string_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
                 // End the previous token
                 let end = if raw_string { i - 1 } else { i };
                 if start < end {
-                    result.push(Token::Unidentified(AnnotatedString::from_str(
+                    result.push(TempToken::Unidentified(AnnotatedString::from_str(
                         &s[start..end],
                     )));
                 }
@@ -265,7 +271,9 @@ fn find_string_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
 
     // Add last unidentified token if any
     if start < s.len() {
-        result.push(Token::Unidentified(AnnotatedString::from_str(&s[start..])));
+        result.push(TempToken::Unidentified(AnnotatedString::from_str(
+            &s[start..],
+        )));
     }
 
     return Ok(result);
@@ -277,7 +285,7 @@ fn find_string_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
 /// # Parameters
 ///
 /// s: The annotated string to search for value literals
-fn find_value_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
+fn find_value_literals(s: &AnnotatedStr) -> Result<Vec<TempToken>> {
     let mut result = Vec::new();
     let mut start = 0;
     let mut allow_literal = true;
@@ -319,9 +327,11 @@ fn find_value_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
 
             // Add unidentified token for characters before the literal and the literal itself and update the start position
             if start < i {
-                result.push(Token::Unidentified(AnnotatedString::from_str(&s[start..i])));
+                result.push(TempToken::Unidentified(AnnotatedString::from_str(
+                    &s[start..i],
+                )));
             }
-            result.push(literal);
+            result.push(TempToken::Token(literal));
             start = i + skip_count;
             iterator.nth(skip_count - 1);
 
@@ -336,7 +346,9 @@ fn find_value_literals(s: &AnnotatedStr) -> Result<Vec<Token>> {
 
     // Get the last unidentified element
     if start < s.len() {
-        result.push(Token::Unidentified(AnnotatedString::from_str(&s[start..])));
+        result.push(TempToken::Unidentified(AnnotatedString::from_str(
+            &s[start..],
+        )));
     }
 
     return Ok(result);
@@ -584,48 +596,51 @@ mod tests {
         #[test]
         fn single_true() {
             let s = AnnotatedString::new("true");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::BooleanLiteral(Annotated {
+                vec![TempToken::Token(Token::BooleanLiteral(Annotated {
                     value: true,
                     line: 1,
                     column: 1
-                }),]
+                })),]
             );
         }
 
         #[test]
         fn single_false() {
             let s = AnnotatedString::new("false");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::BooleanLiteral(Annotated {
+                vec![TempToken::Token(Token::BooleanLiteral(Annotated {
                     value: false,
                     line: 1,
                     column: 1
-                }),]
+                })),]
             );
         }
 
         #[test]
         fn imbedded_true() {
             let s = AnnotatedString::new("a true b");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(AnnotatedString::from_str(&s[0..2])),
-                    Token::BooleanLiteral(Annotated {
+                    TempToken::Unidentified(AnnotatedString::from_str(&s[0..2])),
+                    TempToken::Token(Token::BooleanLiteral(Annotated {
                         value: true,
                         line: 1,
                         column: 3
-                    }),
-                    Token::Unidentified(AnnotatedString::from_str(&s[6..]))
+                    })),
+                    TempToken::Unidentified(AnnotatedString::from_str(&s[6..]))
                 ]
             );
         }
@@ -633,18 +648,19 @@ mod tests {
         #[test]
         fn imbedded_false() {
             let s = AnnotatedString::new("a false b");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(AnnotatedString::from_str(&s[0..2])),
-                    Token::BooleanLiteral(Annotated {
+                    TempToken::Unidentified(AnnotatedString::from_str(&s[0..2])),
+                    TempToken::Token(Token::BooleanLiteral(Annotated {
                         value: false,
                         line: 1,
                         column: 3
-                    }),
-                    Token::Unidentified(AnnotatedString::from_str(&s[7..]))
+                    })),
+                    TempToken::Unidentified(AnnotatedString::from_str(&s[7..]))
                 ]
             );
         }
@@ -652,44 +668,48 @@ mod tests {
         #[test]
         fn invalid_true_begin() {
             let s = AnnotatedString::new("atrue");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+                vec![TempToken::Unidentified(AnnotatedString::from_str(&s)),]
             );
         }
 
         #[test]
         fn invalid_false_begin() {
             let s = AnnotatedString::new("afalse");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+                vec![TempToken::Unidentified(AnnotatedString::from_str(&s)),]
             );
         }
 
         #[test]
         fn invalid_true_end() {
             let s = AnnotatedString::new("truea");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+                vec![TempToken::Unidentified(AnnotatedString::from_str(&s)),]
             );
         }
 
         #[test]
         fn invalid_false_end() {
             let s = AnnotatedString::new("falsea");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+                vec![TempToken::Unidentified(AnnotatedString::from_str(&s)),]
             );
         }
     }
@@ -700,33 +720,35 @@ mod tests {
         #[test]
         fn single() {
             let s = AnnotatedString::new("1234567890");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::IntegerLiteral(Annotated {
+                vec![TempToken::Token(Token::IntegerLiteral(Annotated {
                     value: 1234567890,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
 
         #[test]
         fn imbedded() {
             let s = AnnotatedString::new("a 1234567890 b");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(AnnotatedString::from_str(&s[0..2])),
-                    Token::IntegerLiteral(Annotated {
+                    TempToken::Unidentified(AnnotatedString::from_str(&s[0..2])),
+                    TempToken::Token(Token::IntegerLiteral(Annotated {
                         value: 1234567890,
                         line: 1,
                         column: 3
-                    }),
-                    Token::Unidentified(AnnotatedString::from_str(&s[12..]))
+                    })),
+                    TempToken::Unidentified(AnnotatedString::from_str(&s[12..]))
                 ]
             );
         }
@@ -734,89 +756,96 @@ mod tests {
         #[test]
         fn invalid_start() {
             let s = AnnotatedString::new("a1234567890");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+                vec![TempToken::Unidentified(AnnotatedString::from_str(&s)),]
             );
         }
 
         #[test]
         fn invalid_end() {
             let s = AnnotatedString::new("1234567890a");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+                vec![TempToken::Unidentified(AnnotatedString::from_str(&s)),]
             );
         }
 
         #[test]
         fn hexadecimal_lowercase() {
             let s = AnnotatedString::new("0x123abcdef");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::IntegerLiteral(Annotated {
+                vec![TempToken::Token(Token::IntegerLiteral(Annotated {
                     value: 0x123abcdef,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
 
         #[test]
         fn hexadecimal_uppercase() {
             let s = AnnotatedString::new("0X123ABCDEF");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::IntegerLiteral(Annotated {
+                vec![TempToken::Token(Token::IntegerLiteral(Annotated {
                     value: 0x123abcdef,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
 
         #[test]
         fn binary_lowercase() {
             let s = AnnotatedString::new("0b101010");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::IntegerLiteral(Annotated {
+                vec![TempToken::Token(Token::IntegerLiteral(Annotated {
                     value: 0b101010,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
 
         #[test]
         fn binary_uppercase() {
             let s = AnnotatedString::new("0B101010");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::IntegerLiteral(Annotated {
+                vec![TempToken::Token(Token::IntegerLiteral(Annotated {
                     value: 0b101010,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
 
         #[test]
         fn too_large() {
             let s = AnnotatedString::new("123456789012345678901234567890");
-            let result = find_literals(&s).unwrap_err();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap_err();
 
             assert_eq!(
                 result,
@@ -835,33 +864,35 @@ mod tests {
         #[test]
         fn single() {
             let s = AnnotatedString::new("123.456");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::FloatLiteral(Annotated {
+                vec![TempToken::Token(Token::FloatLiteral(Annotated {
                     value: 123.456,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
 
         #[test]
         fn imbedded() {
             let s = AnnotatedString::new("a 123.456 b");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(AnnotatedString::from_str(&s[0..2])),
-                    Token::FloatLiteral(Annotated {
+                    TempToken::Unidentified(AnnotatedString::from_str(&s[0..2])),
+                    TempToken::Token(Token::FloatLiteral(Annotated {
                         value: 123.456,
                         line: 1,
                         column: 3
-                    }),
-                    Token::Unidentified(AnnotatedString::from_str(&s[9..]))
+                    })),
+                    TempToken::Unidentified(AnnotatedString::from_str(&s[9..]))
                 ]
             );
         }
@@ -869,157 +900,168 @@ mod tests {
         #[test]
         fn invalid_start() {
             let s = AnnotatedString::new("a123.456");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+                vec![TempToken::Unidentified(AnnotatedString::from_str(&s)),]
             );
         }
 
         #[test]
         fn invalid_end() {
             let s = AnnotatedString::new("123.456a");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::Unidentified(AnnotatedString::from_str(&s)),]
+                vec![TempToken::Unidentified(AnnotatedString::from_str(&s)),]
             );
         }
 
         #[test]
         fn start_dot() {
             let s = AnnotatedString::new(".456");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::FloatLiteral(Annotated {
+                vec![TempToken::Token(Token::FloatLiteral(Annotated {
                     value: 0.456,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
 
         #[test]
         fn end_dot() {
             let s = AnnotatedString::new("123.");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::FloatLiteral(Annotated {
+                vec![TempToken::Token(Token::FloatLiteral(Annotated {
                     value: 123.0,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
 
         #[test]
         fn scientific_lowercase() {
             let s = AnnotatedString::new("123.456e2");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::FloatLiteral(Annotated {
+                vec![TempToken::Token(Token::FloatLiteral(Annotated {
                     value: 12345.6,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
 
         #[test]
         fn scientific_uppercase() {
             let s = AnnotatedString::new("123.456E2");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::FloatLiteral(Annotated {
+                vec![TempToken::Token(Token::FloatLiteral(Annotated {
                     value: 12345.6,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
 
         #[test]
         fn scientific_neg() {
             let s = AnnotatedString::new("123.456e-2");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::FloatLiteral(Annotated {
+                vec![TempToken::Token(Token::FloatLiteral(Annotated {
                     value: 1.23456,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
 
         #[test]
         fn scientific_pos() {
             let s = AnnotatedString::new("123.456e+2");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::FloatLiteral(Annotated {
+                vec![TempToken::Token(Token::FloatLiteral(Annotated {
                     value: 12345.6,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
 
         #[test]
         fn scientific_small() {
             let s = AnnotatedString::new("123.456e-1000");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::FloatLiteral(Annotated {
+                vec![TempToken::Token(Token::FloatLiteral(Annotated {
                     value: 0.0,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
 
         #[test]
         fn scientific_large() {
             let s = AnnotatedString::new("123.456e+1000");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::FloatLiteral(Annotated {
+                vec![TempToken::Token(Token::FloatLiteral(Annotated {
                     value: f64::INFINITY,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
 
         #[test]
         fn scientific_no_dot() {
             let s = AnnotatedString::new("123e2");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::FloatLiteral(Annotated {
+                vec![TempToken::Token(Token::FloatLiteral(Annotated {
                     value: 12300.0,
                     line: 1,
                     column: 1
-                })]
+                }))]
             );
         }
     }
@@ -1030,33 +1072,35 @@ mod tests {
         #[test]
         fn single() {
             let s = AnnotatedString::new("'a'");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::CharacterLiteral(Annotated {
+                vec![TempToken::Token(Token::CharacterLiteral(Annotated {
                     value: 'a',
                     line: 1,
                     column: 1
-                }),]
+                })),]
             );
         }
 
         #[test]
         fn imbedded() {
             let s = AnnotatedString::new("a 'a' b");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(AnnotatedString::from_str(&s[0..2])),
-                    Token::CharacterLiteral(Annotated {
+                    TempToken::Unidentified(AnnotatedString::from_str(&s[0..2])),
+                    TempToken::Token(Token::CharacterLiteral(Annotated {
                         value: 'a',
                         line: 1,
                         column: 3
-                    }),
-                    Token::Unidentified(AnnotatedString::from_str(&s[5..]))
+                    })),
+                    TempToken::Unidentified(AnnotatedString::from_str(&s[5..]))
                 ]
             );
         }
@@ -1064,67 +1108,72 @@ mod tests {
         #[test]
         fn special() {
             let s = AnnotatedString::new("'\\''");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::CharacterLiteral(Annotated {
+                vec![TempToken::Token(Token::CharacterLiteral(Annotated {
                     value: '\'',
                     line: 1,
                     column: 1
-                }),]
+                })),]
             );
         }
 
         #[test]
         fn hexadecimal() {
             let s = AnnotatedString::new("'\\x41'");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::CharacterLiteral(Annotated {
+                vec![TempToken::Token(Token::CharacterLiteral(Annotated {
                     value: 'A',
                     line: 1,
                     column: 1
-                }),]
+                })),]
             );
         }
 
         #[test]
         fn octal() {
             let s = AnnotatedString::new("'\\101'");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::CharacterLiteral(Annotated {
+                vec![TempToken::Token(Token::CharacterLiteral(Annotated {
                     value: 'A',
                     line: 1,
                     column: 1
-                }),]
+                })),]
             );
         }
 
         #[test]
         fn raw() {
             let s = AnnotatedString::new("r'\\'");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::CharacterLiteral(Annotated {
+                vec![TempToken::Token(Token::CharacterLiteral(Annotated {
                     value: '\\',
                     line: 1,
                     column: 2
-                }),]
+                })),]
             );
         }
 
         #[test]
         fn too_short() {
             let s = AnnotatedString::new("''");
-            let result = find_literals(&s).unwrap_err();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap_err();
 
             assert_eq!(
                 result,
@@ -1139,7 +1188,8 @@ mod tests {
         #[test]
         fn too_long() {
             let s = AnnotatedString::new("'ab'");
-            let result = find_literals(&s).unwrap_err();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap_err();
 
             assert_eq!(
                 result,
@@ -1154,7 +1204,8 @@ mod tests {
         #[test]
         fn not_ended() {
             let s = AnnotatedString::new("'a");
-            let result = find_literals(&s).unwrap_err();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap_err();
 
             assert_eq!(
                 result,
@@ -1169,7 +1220,8 @@ mod tests {
         #[test]
         fn invalid_escape_sequence() {
             let s = AnnotatedString::new("'\\z'");
-            let result = find_literals(&s).unwrap_err();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap_err();
 
             assert_eq!(
                 result,
@@ -1184,7 +1236,8 @@ mod tests {
         #[test]
         fn invalid_escape_digit() {
             let s = AnnotatedString::new("'\\xt'");
-            let result = find_literals(&s).unwrap_err();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap_err();
 
             assert_eq!(
                 result,
@@ -1199,7 +1252,8 @@ mod tests {
         #[test]
         fn large_escape_value() {
             let s = AnnotatedString::new("'\\777'");
-            let result = find_literals(&s).unwrap_err();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap_err();
 
             assert_eq!(
                 result,
@@ -1218,33 +1272,35 @@ mod tests {
         #[test]
         fn single() {
             let s = AnnotatedString::new("\"a\"");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::StringLiteral(Annotated {
+                vec![TempToken::Token(Token::StringLiteral(Annotated {
                     value: "a".to_string(),
                     line: 1,
                     column: 1
-                }),]
+                })),]
             );
         }
 
         #[test]
         fn imbedded() {
             let s = AnnotatedString::new("a \"a\" b");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
                 vec![
-                    Token::Unidentified(AnnotatedString::from_str(&s[0..2])),
-                    Token::StringLiteral(Annotated {
+                    TempToken::Unidentified(AnnotatedString::from_str(&s[0..2])),
+                    TempToken::Token(Token::StringLiteral(Annotated {
                         value: "a".to_string(),
                         line: 1,
                         column: 3
-                    }),
-                    Token::Unidentified(AnnotatedString::from_str(&s[5..]))
+                    })),
+                    TempToken::Unidentified(AnnotatedString::from_str(&s[5..]))
                 ]
             );
         }
@@ -1252,82 +1308,88 @@ mod tests {
         #[test]
         fn special() {
             let s = AnnotatedString::new("\"\\\"\"");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::StringLiteral(Annotated {
+                vec![TempToken::Token(Token::StringLiteral(Annotated {
                     value: "\"".to_string(),
                     line: 1,
                     column: 1
-                }),]
+                })),]
             );
         }
 
         #[test]
         fn hexadecimal() {
             let s = AnnotatedString::new("\"\\x41\"");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::StringLiteral(Annotated {
+                vec![TempToken::Token(Token::StringLiteral(Annotated {
                     value: "A".to_string(),
                     line: 1,
                     column: 1
-                }),]
+                })),]
             );
         }
 
         #[test]
         fn octal() {
             let s = AnnotatedString::new("\"\\101\"");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::StringLiteral(Annotated {
+                vec![TempToken::Token(Token::StringLiteral(Annotated {
                     value: "A".to_string(),
                     line: 1,
                     column: 1
-                }),]
+                })),]
             );
         }
 
         #[test]
         fn raw() {
             let s = AnnotatedString::new("r\"\\\"");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::StringLiteral(Annotated {
+                vec![TempToken::Token(Token::StringLiteral(Annotated {
                     value: "\\".to_string(),
                     line: 1,
                     column: 2
-                }),]
+                })),]
             );
         }
 
         #[test]
         fn long() {
             let s = AnnotatedString::new("\"ab\"");
-            let result = find_literals(&s).unwrap();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap();
 
             assert_eq!(
                 result,
-                vec![Token::StringLiteral(Annotated {
+                vec![TempToken::Token(Token::StringLiteral(Annotated {
                     value: "ab".to_string(),
                     line: 1,
                     column: 1
-                }),]
+                })),]
             );
         }
 
         #[test]
         fn not_ended() {
             let s = AnnotatedString::new("\"a");
-            let result = find_literals(&s).unwrap_err();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap_err();
 
             assert_eq!(
                 result,
@@ -1342,7 +1404,8 @@ mod tests {
         #[test]
         fn invalid_escape_sequence() {
             let s = AnnotatedString::new("\"\\z\"");
-            let result = find_literals(&s).unwrap_err();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap_err();
 
             assert_eq!(
                 result,
@@ -1357,7 +1420,8 @@ mod tests {
         #[test]
         fn invalid_escape_digit() {
             let s = AnnotatedString::new("\"\\xt\"");
-            let result = find_literals(&s).unwrap_err();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap_err();
 
             assert_eq!(
                 result,
@@ -1372,7 +1436,8 @@ mod tests {
         #[test]
         fn large_escape_value() {
             let s = AnnotatedString::new("\"\\777\"");
-            let result = find_literals(&s).unwrap_err();
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_literals(tokens).unwrap_err();
 
             assert_eq!(
                 result,
@@ -1388,7 +1453,8 @@ mod tests {
     #[test]
     fn empty() {
         let s = AnnotatedString::new("");
-        let result = find_literals(&s).unwrap();
+        let tokens = vec![TempToken::Unidentified(s.clone())];
+        let result = find_literals(tokens).unwrap();
 
         assert_eq!(result, vec![]);
     }
@@ -1396,41 +1462,42 @@ mod tests {
     #[test]
     fn multiple() {
         let s = AnnotatedString::new("a \"string\"\nb 'c'\nc 123\nd 4.56\ne true");
-        let result = find_literals(&s).unwrap();
+        let tokens = vec![TempToken::Unidentified(s.clone())];
+        let result = find_literals(tokens).unwrap();
 
         assert_eq!(
             result,
             vec![
-                Token::Unidentified(AnnotatedString::from_str(&s[0..2])),
-                Token::StringLiteral(Annotated {
+                TempToken::Unidentified(AnnotatedString::from_str(&s[0..2])),
+                TempToken::Token(Token::StringLiteral(Annotated {
                     value: "string".to_string(),
                     line: 1,
                     column: 3
-                }),
-                Token::Unidentified(AnnotatedString::from_str(&s[10..13])),
-                Token::CharacterLiteral(Annotated {
+                })),
+                TempToken::Unidentified(AnnotatedString::from_str(&s[10..13])),
+                TempToken::Token(Token::CharacterLiteral(Annotated {
                     value: 'c',
                     line: 2,
                     column: 3
-                }),
-                Token::Unidentified(AnnotatedString::from_str(&s[16..19])),
-                Token::IntegerLiteral(Annotated {
+                })),
+                TempToken::Unidentified(AnnotatedString::from_str(&s[16..19])),
+                TempToken::Token(Token::IntegerLiteral(Annotated {
                     value: 123,
                     line: 3,
                     column: 3
-                }),
-                Token::Unidentified(AnnotatedString::from_str(&s[22..25])),
-                Token::FloatLiteral(Annotated {
+                })),
+                TempToken::Unidentified(AnnotatedString::from_str(&s[22..25])),
+                TempToken::Token(Token::FloatLiteral(Annotated {
                     value: 4.56,
                     line: 4,
                     column: 3
-                }),
-                Token::Unidentified(AnnotatedString::from_str(&s[29..32])),
-                Token::BooleanLiteral(Annotated {
+                })),
+                TempToken::Unidentified(AnnotatedString::from_str(&s[29..32])),
+                TempToken::Token(Token::BooleanLiteral(Annotated {
                     value: true,
                     line: 5,
                     column: 3
-                }),
+                })),
             ]
         );
     }
