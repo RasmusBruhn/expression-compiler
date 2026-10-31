@@ -2,8 +2,10 @@
 //! This module provides functionality for handling types within expressions.
 //!
 
+use std::collections::{HashMap, HashSet};
+
 /// All different types that can be used within expressions
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Type {
     SignedInteger,
     UnsignedInteger,
@@ -11,4 +13,8 @@ pub enum Type {
     Boolean,
     String,
     Character,
+    Array(Box<Type>),
+    Struct(HashMap<String, Type>),
+    Enum(HashMap<String, Option<Type>>),
+    Variant(HashSet<Type>),
 }

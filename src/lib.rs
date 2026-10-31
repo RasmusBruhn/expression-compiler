@@ -37,6 +37,7 @@ pub(crate) enum Token {
     CloseCurlyBracket(Annotated<()>),
     Operator(Annotated<String>),
     Symbol(Annotated<String>),
+    Function(Annotated<String>),
 }
 
 /// A single token extracted from an annotated string which can also be a
