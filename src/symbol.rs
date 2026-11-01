@@ -47,7 +47,7 @@ pub(crate) fn find_symbols(tokens: Vec<TempToken>) -> Result<Vec<Token>> {
 }
 
 /// Defines a single variable
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Variable {
     /// The name of the variable
     pub name: String,
@@ -87,7 +87,7 @@ pub(crate) fn structure_variables(variables: Vec<Variable>) -> Result<HashMap<St
 }
 
 /// Defines a single function
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Function {
     /// The name of the function
     pub name: String,
@@ -121,7 +121,7 @@ pub(crate) fn structure_functions(
             .entry(function.name.clone())
             .or_insert(Vec::<Function>::new());
         for prev in entry.iter() {
-            if function.name == prev.name || function.args == prev.args {
+            if function.name == prev.name && function.args == prev.args {
                 return Err(Error {
                     error: ErrorCore::DuplicateFunction(function.name, function.args),
                     line: 0,
@@ -147,4 +147,350 @@ pub(crate) fn is_name_valid(name: &str) -> bool {
     return !(name.contains(|c: char| !is_char_valid(c))
         || name.is_empty()
         || !is_char_initial(name.chars().next().unwrap()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod is_name_valid {
+        use super::*;
+
+        #[test]
+        fn alphabetic() {
+            let input = "test";
+
+            assert!(is_name_valid(input));
+        }
+
+        #[test]
+        fn alphanumeric() {
+            let input = "test1";
+
+            assert!(is_name_valid(input));
+        }
+
+        #[test]
+        fn underscore() {
+            let input = "_test";
+
+            assert!(is_name_valid(input));
+        }
+
+        #[test]
+        fn error_symbol() {
+            let input = "test-";
+
+            assert!(!is_name_valid(input));
+        }
+
+        #[test]
+        fn error_init() {
+            let input = "1test";
+
+            assert!(!is_name_valid(input));
+        }
+
+        #[test]
+        fn error_empty() {
+            let input = "";
+
+            assert!(!is_name_valid(input));
+        }
+    }
+
+    mod find_symbols {
+        use super::*;
+        use crate::annotate::AnnotatedString;
+
+        #[test]
+        fn valid() {
+            let s = AnnotatedString::new("test_1");
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_symbols(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![Token::Symbol(Annotated {
+                    value: to_string(&s),
+                    line: 1,
+                    column: 1,
+                }),]
+            );
+        }
+
+        #[test]
+        fn empty() {
+            let s = AnnotatedString::new("");
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_symbols(tokens).unwrap();
+
+            assert_eq!(result, vec![]);
+        }
+
+        #[test]
+        fn invalid() {
+            let s = AnnotatedString::new("test-1");
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_symbols(tokens).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::InvalidSymbolName(to_string(&s)),
+                    line: 1,
+                    column: 1,
+                }
+            );
+        }
+    }
+
+    mod structure_variables {
+        use super::*;
+
+        #[test]
+        fn empty() {
+            let input = vec![];
+            let result = structure_variables(input).unwrap();
+
+            assert_eq!(result.len(), 0);
+        }
+
+        #[test]
+        fn single() {
+            let input = vec![Variable {
+                name: "Type1".to_string(),
+                typ: Type::Float,
+            }];
+            let result = structure_variables(input).unwrap();
+
+            assert_eq!(result.len(), 1);
+            assert_eq!(
+                result.get("Type1").unwrap(),
+                &Variable {
+                    name: "Type1".to_string(),
+                    typ: Type::Float,
+                }
+            );
+        }
+
+        #[test]
+        fn multiple() {
+            let input = vec![
+                Variable {
+                    name: "Type1".to_string(),
+                    typ: Type::Float,
+                },
+                Variable {
+                    name: "Type2".to_string(),
+                    typ: Type::String,
+                },
+            ];
+            let result = structure_variables(input).unwrap();
+
+            assert_eq!(result.len(), 2);
+            assert_eq!(
+                result.get("Type1").unwrap(),
+                &Variable {
+                    name: "Type1".to_string(),
+                    typ: Type::Float,
+                }
+            );
+            assert_eq!(
+                result.get("Type2").unwrap(),
+                &Variable {
+                    name: "Type2".to_string(),
+                    typ: Type::String,
+                }
+            );
+        }
+
+        #[test]
+        fn duplicate() {
+            let input = vec![
+                Variable {
+                    name: "Type1".to_string(),
+                    typ: Type::Float,
+                },
+                Variable {
+                    name: "Type1".to_string(),
+                    typ: Type::String,
+                },
+            ];
+            let result = structure_variables(input).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::DuplicateVariable("Type1".to_string()),
+                    line: 0,
+                    column: 0,
+                }
+            );
+        }
+
+        #[test]
+        fn invalid_name() {
+            let input = vec![Variable {
+                name: "Type-1".to_string(),
+                typ: Type::Float,
+            }];
+            let result = structure_variables(input).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::InvalidVariableName("Type-1".to_string()),
+                    line: 0,
+                    column: 0,
+                }
+            );
+        }
+    }
+
+    mod structure_functions {
+        use super::*;
+
+        #[test]
+        fn empty() {
+            let input = vec![];
+            let result = structure_functions(input).unwrap();
+
+            assert_eq!(result.len(), 0);
+        }
+
+        #[test]
+        fn single() {
+            let input = vec![Function {
+                name: "Type1".to_string(),
+                args: Vec::new(),
+                typ: Type::Float,
+            }];
+            let result = structure_functions(input).unwrap();
+
+            assert_eq!(result.len(), 1);
+            assert_eq!(
+                result.get("Type1").unwrap(),
+                &vec![Function {
+                    name: "Type1".to_string(),
+                    args: Vec::new(),
+                    typ: Type::Float,
+                }]
+            );
+        }
+
+        #[test]
+        fn multiple() {
+            let input = vec![
+                Function {
+                    name: "Type1".to_string(),
+                    args: Vec::new(),
+                    typ: Type::Float,
+                },
+                Function {
+                    name: "Type2".to_string(),
+                    args: Vec::new(),
+                    typ: Type::String,
+                },
+            ];
+            let result = structure_functions(input).unwrap();
+
+            assert_eq!(result.len(), 2);
+            assert_eq!(
+                result.get("Type1").unwrap(),
+                &vec![Function {
+                    name: "Type1".to_string(),
+                    args: Vec::new(),
+                    typ: Type::Float,
+                }]
+            );
+            assert_eq!(
+                result.get("Type2").unwrap(),
+                &vec![Function {
+                    name: "Type2".to_string(),
+                    args: Vec::new(),
+                    typ: Type::String,
+                }]
+            );
+        }
+
+        #[test]
+        fn same() {
+            let input = vec![
+                Function {
+                    name: "Type1".to_string(),
+                    args: vec![Type::Float],
+                    typ: Type::Float,
+                },
+                Function {
+                    name: "Type1".to_string(),
+                    args: vec![Type::String],
+                    typ: Type::String,
+                },
+            ];
+            let result = structure_functions(input).unwrap();
+
+            assert_eq!(result.len(), 1);
+            assert_eq!(
+                result.get("Type1").unwrap(),
+                &vec![
+                    Function {
+                        name: "Type1".to_string(),
+                        args: vec![Type::Float],
+                        typ: Type::Float,
+                    },
+                    Function {
+                        name: "Type1".to_string(),
+                        args: vec![Type::String],
+                        typ: Type::String,
+                    },
+                ]
+            );
+        }
+
+        #[test]
+        fn duplicate() {
+            let input = vec![
+                Function {
+                    name: "Type1".to_string(),
+                    args: vec![Type::Float],
+                    typ: Type::Float,
+                },
+                Function {
+                    name: "Type1".to_string(),
+                    args: vec![Type::Float],
+                    typ: Type::String,
+                },
+            ];
+            let result = structure_functions(input).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::DuplicateFunction("Type1".to_string(), vec![Type::Float]),
+                    line: 0,
+                    column: 0,
+                }
+            );
+        }
+
+        #[test]
+        fn invalid_name() {
+            let input = vec![Function {
+                name: "Type-1".to_string(),
+                args: Vec::new(),
+                typ: Type::Float,
+            }];
+            let result = structure_functions(input).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::InvalidFunctionName("Type-1".to_string()),
+                    line: 0,
+                    column: 0,
+                }
+            );
+        }
+    }
 }
