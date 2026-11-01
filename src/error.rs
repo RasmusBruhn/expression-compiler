@@ -61,4 +61,10 @@ pub enum ErrorCore {
     /// An operator contains illegal characters
     #[error("Operator contains illegal characters: '{}'", .0)]
     OperatorIllegalCharacters(String),
+    /// Type alias is used multiple times
+    #[error("Type alias is used multiple times: '{}'", .0)]
+    DuplicateTypeAlias(String),
+    /// Type alias has an invalid name
+    #[error("Type alias has an invalid name: '{}'", .0)]
+    InvalidTypeAliasName(String),
 }
