@@ -65,7 +65,7 @@ impl Display for Type {
 }
 
 /// An alias for a type
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeAlias {
     /// The name of the type alias
     pub name: String,
@@ -148,4 +148,110 @@ pub(crate) fn structure_type_aliases(
     return Ok(result);
 }
 
-// TEST
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod structure_type_aliases {
+        use super::*;
+
+        #[test]
+        fn empty() {
+            let input = vec![];
+            let result = structure_type_aliases(input).unwrap();
+
+            assert_eq!(result.len(), 6);
+        }
+
+        #[test]
+        fn single() {
+            let input = vec![TypeAlias {
+                name: "Type1".to_string(),
+                typ: Type::Float,
+            }];
+            let result = structure_type_aliases(input).unwrap();
+
+            assert_eq!(result.len(), 7);
+            assert_eq!(
+                result.get("Type1").unwrap(),
+                &TypeAlias {
+                    name: "Type1".to_string(),
+                    typ: Type::Float,
+                }
+            );
+        }
+
+        #[test]
+        fn multiple() {
+            let input = vec![
+                TypeAlias {
+                    name: "Type1".to_string(),
+                    typ: Type::Float,
+                },
+                TypeAlias {
+                    name: "Type2".to_string(),
+                    typ: Type::String,
+                },
+            ];
+            let result = structure_type_aliases(input).unwrap();
+
+            assert_eq!(result.len(), 8);
+            assert_eq!(
+                result.get("Type1").unwrap(),
+                &TypeAlias {
+                    name: "Type1".to_string(),
+                    typ: Type::Float,
+                }
+            );
+            assert_eq!(
+                result.get("Type2").unwrap(),
+                &TypeAlias {
+                    name: "Type2".to_string(),
+                    typ: Type::String,
+                }
+            );
+        }
+
+        #[test]
+        fn duplicate() {
+            let input = vec![
+                TypeAlias {
+                    name: "Type1".to_string(),
+                    typ: Type::Float,
+                },
+                TypeAlias {
+                    name: "Type1".to_string(),
+                    typ: Type::String,
+                },
+            ];
+            let result = structure_type_aliases(input).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::DuplicateTypeAlias("Type1".to_string()),
+                    line: 0,
+                    column: 0,
+                }
+            );
+        }
+
+        #[test]
+        fn invalid_name() {
+            let input = vec![TypeAlias {
+                name: "Type-1".to_string(),
+                typ: Type::Float,
+            }];
+            let result = structure_type_aliases(input).unwrap_err();
+
+            assert_eq!(
+                result,
+                Error {
+                    error: ErrorCore::InvalidTypeAliasName("Type-1".to_string()),
+                    line: 0,
+                    column: 0,
+                }
+            );
+        }
+    }
+}
