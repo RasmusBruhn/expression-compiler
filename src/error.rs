@@ -81,4 +81,7 @@ pub enum ErrorCore {
     /// Function has an invalid name
     #[error("Function has an invalid name: '{}'", .0)]
     InvalidFunctionName(String),
+    /// Symbol has an invalid name
+    #[error("Symbol has an invalid name: '{}'", .0)]
+    InvalidSymbolName(String),
 }
