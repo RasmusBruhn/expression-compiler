@@ -5,6 +5,8 @@
 
 use std::fmt::Display;
 
+use crate::Type;
+
 /// A specialized `Result` type for operations that can return an `Error`
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -61,4 +63,25 @@ pub enum ErrorCore {
     /// An operator contains illegal characters
     #[error("Operator contains illegal characters: '{}'", .0)]
     OperatorIllegalCharacters(String),
+    /// Type alias is used multiple times
+    #[error("Type alias is used multiple times: '{}'", .0)]
+    DuplicateTypeAlias(String),
+    /// Type alias has an invalid name
+    #[error("Type alias has an invalid name: '{}'", .0)]
+    InvalidTypeAliasName(String),
+    /// Variable name is used multiple times
+    #[error("Variable name is used multiple times: '{}'", .0)]
+    DuplicateVariable(String),
+    /// Variable has an invalid name
+    #[error("Variable has an invalid name: '{}'", .0)]
+    InvalidVariableName(String),
+    /// Function signature is used multiple times
+    #[error("Function signature is used multiple times: '{}({})'", .0, .1.iter().map(|typ| format!("{}", typ)).collect::<Vec<String>>().join(", "))]
+    DuplicateFunction(String, Vec<Type>),
+    /// Function has an invalid name
+    #[error("Function has an invalid name: '{}'", .0)]
+    InvalidFunctionName(String),
+    /// Symbol has an invalid name
+    #[error("Symbol has an invalid name: '{}'", .0)]
+    InvalidSymbolName(String),
 }

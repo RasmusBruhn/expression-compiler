@@ -9,7 +9,7 @@ use crate::{
 use std::collections::HashMap;
 
 /// Defines a single operator, either left, right or both sided
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operator {
     /// An operator working from the left side of its input, like ++x
     Left(OperatorLeft),
@@ -31,7 +31,7 @@ impl Operator {
 }
 
 /// Defines a single left-sided (like ++x) operator
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OperatorLeft {
     /// The symbol representing the operator (e.g., "++" for increment), must
     /// not contain (alphanumerical characters, whitespace, underscore, dot,
@@ -47,7 +47,7 @@ pub struct OperatorLeft {
 }
 
 /// Defines a single right-sided (like x++) operator
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OperatorRight {
     /// The symbol representing the operator (e.g., "++" for increment), must
     /// not contain (alphanumerical characters, whitespace, underscore, dot,
@@ -63,7 +63,7 @@ pub struct OperatorRight {
 }
 
 /// Defines a single both-sided (like x+y) operator
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OperatorBoth {
     /// The symbol representing the operator (e.g., "++" for increment), must
     /// not contain (alphanumerical characters, whitespace, underscore, dot,
@@ -81,7 +81,7 @@ pub struct OperatorBoth {
 }
 
 /// A group of operators with the same symbol
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OperatorGroup {
     /// The symbol representing the operator group (e.g., "++" for increment),
     /// must not contain (alphanumerical characters, whitespace, underscore,
