@@ -9,12 +9,13 @@ mod error;
 mod literal;
 mod operator;
 mod separator;
-mod types;
 mod symbol;
+mod types;
 
 pub use annotate::Annotated;
 pub use error::{Error, ErrorCore, Result};
 pub use operator::{Operator, OperatorBoth, OperatorLeft, OperatorRight};
+pub use symbol::{Function, Variable};
 pub use types::{Type, TypeAlias};
 
 use annotate::AnnotatedString;
@@ -38,7 +39,6 @@ pub(crate) enum Token {
     CloseCurlyBracket(Annotated<()>),
     Operator(Annotated<String>),
     Symbol(Annotated<String>),
-    Function(Annotated<String>),
 }
 
 /// A single token extracted from an annotated string which can also be a
