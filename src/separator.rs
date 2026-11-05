@@ -54,6 +54,11 @@ pub(crate) fn find_separators_single(s: &AnnotatedStr) -> Result<Vec<TempToken>>
                 line: c.line,
                 column: c.column,
             }),
+            '?' => Token::Question(Annotated {
+                value: (),
+                line: c.line,
+                column: c.column,
+            }),
             '(' => Token::OpenBracket(Annotated {
                 value: (),
                 line: c.line,
@@ -223,6 +228,46 @@ mod tests {
                 vec![
                     TempToken::Unidentified(AnnotatedString::from_str(&s[0..1])),
                     TempToken::Token(Token::Colon(Annotated {
+                        value: (),
+                        line: 1,
+                        column: 2,
+                    })),
+                    TempToken::Unidentified(AnnotatedString::from_str(&s[2..3])),
+                ]
+            );
+        }
+    }
+
+    mod question {
+        use super::*;
+
+        #[test]
+        fn single() {
+            let s = AnnotatedString::new("?");
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![TempToken::Token(Token::Question(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 1,
+                }))]
+            );
+        }
+
+        #[test]
+        fn imbedded() {
+            let s = AnnotatedString::new("a?b");
+            let tokens = vec![TempToken::Unidentified(s.clone())];
+            let result = find_separators(tokens).unwrap();
+
+            assert_eq!(
+                result,
+                vec![
+                    TempToken::Unidentified(AnnotatedString::from_str(&s[0..1])),
+                    TempToken::Token(Token::Question(Annotated {
                         value: (),
                         line: 1,
                         column: 2,
@@ -484,7 +529,7 @@ mod tests {
 
     #[test]
     fn multiple() {
-        let s = AnnotatedString::new(".,:()\n[]{}");
+        let s = AnnotatedString::new(".,:?()\n[]{}");
         let tokens = vec![TempToken::Unidentified(s.clone())];
         let result = find_separators(tokens).unwrap();
 
@@ -506,17 +551,22 @@ mod tests {
                     line: 1,
                     column: 3,
                 })),
-                TempToken::Token(Token::OpenBracket(Annotated {
+                TempToken::Token(Token::Question(Annotated {
                     value: (),
                     line: 1,
                     column: 4,
                 })),
-                TempToken::Token(Token::CloseBracket(Annotated {
+                TempToken::Token(Token::OpenBracket(Annotated {
                     value: (),
                     line: 1,
                     column: 5,
                 })),
-                TempToken::Unidentified(AnnotatedString::from_str(&s[5..6])),
+                TempToken::Token(Token::CloseBracket(Annotated {
+                    value: (),
+                    line: 1,
+                    column: 6,
+                })),
+                TempToken::Unidentified(AnnotatedString::from_str(&s[6..7])),
                 TempToken::Token(Token::OpenSquareBracket(Annotated {
                     value: (),
                     line: 2,

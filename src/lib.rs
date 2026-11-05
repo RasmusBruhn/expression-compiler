@@ -32,6 +32,7 @@ pub(crate) enum Token {
     Comma(Annotated<()>),
     Dot(Annotated<()>),
     Colon(Annotated<()>),
+    Question(Annotated<()>),
     OpenBracket(Annotated<()>),
     CloseBracket(Annotated<()>),
     OpenSquareBracket(Annotated<()>),
