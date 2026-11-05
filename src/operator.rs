@@ -110,7 +110,7 @@ pub(crate) fn structure_operators(
         if operator
             .symbol()
             .chars()
-            .any(|c| c.is_alphanumeric() || c.is_whitespace() || "_.,:()[]{}".contains(c))
+            .any(|c| c.is_alphanumeric() || c.is_whitespace() || "_.,:?()[]{}".contains(c))
         {
             return Err(Error {
                 error: ErrorCore::OperatorIllegalCharacters(operator.symbol().to_string()),
