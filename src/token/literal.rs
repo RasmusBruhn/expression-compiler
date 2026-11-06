@@ -1,10 +1,10 @@
 //!
-//! Provides structures and methods for extracting string literals from
-//! annotated strings.
+//! Handles tokenization of literals from raw text.
 //!
 
+use super::{TempToken, Token};
 use crate::{
-    Error, ErrorCore, Result, TempToken, Token,
+    Error, ErrorCore, Result,
     annotate::{Annotated, AnnotatedStr, AnnotatedString},
 };
 
@@ -14,7 +14,7 @@ use crate::{
 /// # Parameters
 ///
 /// tokens: The input tokens to search for literals
-pub(crate) fn find_literals(tokens: Vec<TempToken>) -> Result<Vec<TempToken>> {
+pub(super) fn find_literals(tokens: Vec<TempToken>) -> Result<Vec<TempToken>> {
     let mut result = Vec::new();
     result.reserve(tokens.len());
 
