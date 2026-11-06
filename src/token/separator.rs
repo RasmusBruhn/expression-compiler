@@ -1,10 +1,10 @@
 //!
-//! Provides structures and methods for finding and handling separators (like
-//! commas, dots, colons and brackets) in expression strings.
+//! Handles tokenization of separator characters from raw text.
 //!
 
+use super::{TempToken, Token};
 use crate::{
-    Result, TempToken, Token,
+    Result,
     annotate::{Annotated, AnnotatedStr, AnnotatedString},
 };
 
@@ -13,7 +13,7 @@ use crate::{
 /// # Parameters
 ///
 /// tokens: A slice of tokens to search for separators within
-pub(crate) fn find_separators(tokens: Vec<TempToken>) -> Result<Vec<TempToken>> {
+pub(super) fn find_separators(tokens: Vec<TempToken>) -> Result<Vec<TempToken>> {
     let mut result = Vec::new();
     result.reserve(tokens.len());
 
@@ -32,7 +32,7 @@ pub(crate) fn find_separators(tokens: Vec<TempToken>) -> Result<Vec<TempToken>> 
 /// # Parameters
 ///
 /// s: The annotated string to search for separators within
-pub(crate) fn find_separators_single(s: &AnnotatedStr) -> Result<Vec<TempToken>> {
+fn find_separators_single(s: &AnnotatedStr) -> Result<Vec<TempToken>> {
     let mut result = Vec::new();
     let mut start = 0;
 

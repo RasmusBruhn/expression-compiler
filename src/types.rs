@@ -79,7 +79,7 @@ pub struct TypeAlias {
 /// # Parameters
 ///
 /// aliases: A list of all type aliases
-pub(crate) fn structure_type_aliases(
+pub(super) fn structure_type_aliases(
     aliases: Vec<TypeAlias>,
 ) -> Result<HashMap<String, TypeAlias>> {
     let mut result = HashMap::new();
